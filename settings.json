@@ -1,0 +1,14 @@
+{
+  "version": "v1",
+  "exercise": "shoulder_abduction",
+  "arm": "right",
+  "coordinate_representation": "image_landmarks_converted_to_pixels",
+  "camera_setup": "fixed front view, camera at chest height, mark on floor",
+  "capture_width": 1280,
+  "capture_height": 720,
+  "movement_target_deg": 85.0,
+  "target_tolerance_deg": 5.0,
+  "min_visibility": 0.5,
+  "reference_clip": "clips/reference/ref_01.avi",
+  "dtw_threshold": 2.9
+}
