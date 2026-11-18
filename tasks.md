@@ -82,6 +82,53 @@ Leaning gives the same numbers as normal because θ_HT doesn't change with trunk
 
 **Known limit:** timing error grows when the angle crosses the 5 % level slowly: slow reps, and small-range reps where 5 % of 35° is only 1.75°. Rep counting is never wrong. Recheck this on real data in B3 and B8.
 
+## B3: ROM-normalised segmenter (S3 core)
+
+**Branch:** `b3-segmenter-v1` (from `b1-mock-frames`) · **File:** `neuroflow/segmentation/segment.py`, functions `calibrate()` and `segment_reps()` · **Test:** `python -m pytest tests/`
+
+**Why:** fixed thresholds fail for a user whose whole range sits below them. With v0's 30° (or Pavlikov's 55°), someone who can only lift to 25° never opens a rep. Fractions of the user's own range always can.
+
+**How it works:**
+1. **Calibrate** on a separate Normal block (in the protocol, session 1's calibration block), giving `rest_ref` and `rom_ref`.
+   - Rest = 10th percentile of the smoothed angle; rough range = 98th percentile − rest.
+   - Detect reps at 50 % / 40 % of that rough range.
+   - `rom_ref` = median rep peak − rest. This self-scales, so it works for small ranges too.
+2. **Thresholds:** `T_high = rest_ref + 20 % of rom_ref`, `T_low = rest_ref + 15 % of rom_ref`. Same state machine as B2.
+3. **Filters:** drop a detected rep if its peak rises less than 30 % of `rom_ref` above rest, or if it lasts under 0.4 s between its boundaries.
+4. **Boundaries:** the same 5 % rule as B2, unchanged. Rest frames are now those below the scaled `T_low`.
+
+The values 20 % / 15 % / 30 % / 0.4 s are design inferences, not literature values; tune them on training subjects only (sensitivity goes in B8).
+
+**New mock (B1 generator):** `low_rom`, a different user (`mock02`) whose reps peak at about 25° (rest 10°, range about 15°). The four existing mock files are byte-identical; the generator change only adds this variant.
+
+**Calibration in the tests:** a Normal block generated with a different seed (7), never the block under test. Results: `mock01` rest 9.6°, rom 79.6° → T_high 25.5°, T_low 21.5°. `mock02` rest 9.6°, rom 15.3° → T_high 12.6°, T_low 11.9°.
+
+**Results on the committed mocks:**
+
+| Variant | v0 fixed: reps / pass | v1 ROM: reps / pass | v1 worst start / end error |
+| --- | --- | --- | --- |
+| normal | 10/10 / yes | 10/10 / yes | 37.2 / 29.1 ms |
+| slow | 10/10 / yes | 10/10 / yes | 43.5 / 38.1 ms |
+| capped | 10/10 / yes | 10/10 / yes | 59.4 / 47.3 ms |
+| leaning | 10/10 / yes | 10/10 / yes | 37.2 / 29.1 ms |
+| low_rom | **0/10** / no | **10/10** / no (timing) | 110.3 / 82.7 ms |
+
+**Robustness (50 random mocks per variant):**
+
+| Variant | Count correct | Boundary pass |
+| --- | --- | --- |
+| normal | 50/50 | 50/50 |
+| slow | 50/50 | 49/50 |
+| capped | 50/50 | 46/50 |
+| leaning | 50/50 | 50/50 |
+| low_rom | 50/50 | 1/50 (worst error median 112 ms, max 641 ms) |
+
+**False alarms:** 0 reps in 50 rest-only blocks (1° noise, about 37 s each), with either calibration.
+
+**Known limit (extends B2's):** on a very small range, the 5 % boundary level (about 0.8° on 15°) is below the noise, so boundary timing is unreliable. Rep counting still works. The 5 % definition stays as approved; recheck on real low-range clips in B8.
+
+**Tests added:** v1 rep count on all five mocks; v1 boundaries within ±67 ms on the four original mocks (low_rom excluded on purpose, see the known limit); v0 finds 0 reps on low_rom; no false reps on a rest-only block.
+
 ## Decisions log
 
 | Date | Decision |
@@ -92,3 +139,5 @@ Leaning gives the same numbers as normal because θ_HT doesn't change with trunk
 | 2026-11-18 | B1 stays uncommitted until B2 validates against all four truth files |
 | 2026-11-18 | Rep start/end = crossing of rest + 5 % of the rep's range; ±67 ms tolerance kept; same definition for B1 truth, B2 and B9 |
 | 2026-11-18 | B2 validated: all four mocks pass (10/10 reps, max error 59.8 ms) |
+| 2026-11-18 | B1 + B2 committed and pushed (`e716e9e`), tracking files committed (`1fba1f2`) |
+| 2026-11-18 | B3 branched from `b1-mock-frames`; thresholds 20 % / 15 % of rom_ref, min prominence 30 %, min duration 0.4 s (to tune); `low_rom` mock added for the v0-fails case |

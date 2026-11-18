@@ -1,6 +1,6 @@
 # Member B: Task Status
 
-Last updated: 2026-11-18 · Branch: `b1-mock-frames` (B1 + B2 committed in `e716e9e`)
+Last updated: 2026-11-18 · Branch: `b1-mock-frames` (B1 + B2 committed in `e716e9e`) · B3 on `b3-segmenter-v1` (not yet committed)
 
 Legend: ✅ done · 🟡 in progress / blocked on a decision · ⬜ not started
 
@@ -19,7 +19,7 @@ Legend: ✅ done · 🟡 in progress / blocked on a decision · ⬜ not started
 | --- | --- | --- | --- | --- |
 | B1 | Mock `frames.parquet` generator (normal, slow, capped, leaning) | S | ✅ | Truth files use the 5 % boundary definition. B2 validated against all four. Committed `e716e9e` |
 | B2 | Segmenter v0: fixed-threshold hysteresis state machine | M | ✅ | 10/10 reps and start/end within ±67 ms on all four mocks; `pytest tests/` passes. Known limit: across 50 random mocks, slow passes 49/50 and capped 46/50 (known limit). Committed `e716e9e` |
-| B3 | Segmenter v1: ROM-normalised thresholds (S3 core) | M | ⬜ | |
+| B3 | Segmenter v1: ROM-normalised thresholds (S3 core) | M | ✅ | Finds 10/10 reps on new `low_rom` mock where v0 finds 0; all 15 tests pass. Known limit: low_rom boundary timing misses ±67 ms. Not yet committed |
 | B4 | DTW with Sakoe-Chiba band | M | ⬜ | Written from scratch; legacy `nf_core.dtw_distance` not reused |
 | B5 | Templates: linear-stretch mean, then DBA | M | ⬜ | |
 | B6 | Features: duration, time-to-peak ratio, personal-centred ROM, SPARC | M | ⬜ | |
