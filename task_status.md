@@ -1,6 +1,6 @@
 # Member B: Task Status
 
-Last updated: 2026-11-18 · Branch: `Melchior-branch` · B1–B3 committed; B4 not yet committed
+Last updated: 2026-11-18 · Branch: `Melchior-branch` · B1–B4 committed; B5 not yet committed
 
 Legend: ✅ done · 🟡 in progress / blocked on a decision · ⬜ not started
 
@@ -20,8 +20,8 @@ Legend: ✅ done · 🟡 in progress / blocked on a decision · ⬜ not started
 | B1 | Mock `frames.parquet` generator (normal, slow, capped, leaning) | S | ✅ | Truth files use the 5 % boundary definition. B2 validated against all four. Committed `e716e9e` |
 | B2 | Segmenter v0: fixed-threshold hysteresis state machine | M | ✅ | 10/10 reps and start/end within ±67 ms on all four mocks; `pytest tests/` passes. Known limit: across 50 random mocks, slow passes 49/50 and capped 46/50 (known limit). Committed `e716e9e` |
 | B3 | Segmenter v1: ROM-normalised thresholds (S3 core) | M | ✅ | Finds 10/10 reps on new `low_rom` mock where v0 finds 0; all 15 tests pass. Known limit: low_rom boundary timing misses ±67 ms. Not yet committed |
-| B4 | DTW with Sakoe-Chiba band | M | ✅ | Matches `dtaidistance` exactly (200 random pairs × 4 bands); band behaves as expected; 7 tests. Not yet committed |
-| B5 | Templates: linear-stretch mean, then DBA | M | ⬜ | |
+| B4 | DTW with Sakoe-Chiba band | M | ✅ | Matches `dtaidistance` exactly (200 random pairs × 4 bands); band behaves as expected; 7 tests. Committed `2023cad` |
+| B5 | Templates: linear-stretch mean, then DBA | M | ✅ | Mean template recovers the true shape (≈0.4°); DBA beats mean on distance to members everywhere; 13 tests (35 total). Known: DBA fits noise when timing doesn't vary. Not yet committed |
 | B6 | Features: duration, time-to-peak ratio, personal-centred ROM, SPARC | M | ⬜ | |
 | B7 | Compensation features: max lean, min elbow, max hike | M | ⬜ | |
 | B8 | S3 study: automatic vs manual segmentation | L | ⬜ | |

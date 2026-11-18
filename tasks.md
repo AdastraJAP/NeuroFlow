@@ -158,6 +158,63 @@ The values 20 % / 15 % / 30 % / 0.4 s are design inferences, not literature valu
 
 **Dependency:** `dtaidistance` is used only by the test; it's skipped if not installed.
 
+## B5: rep templates
+
+**File:** `neuroflow/segmentation/templates.py` (plus `dtw_path` added to `dtw.py`) · **Run:** `python -m neuroflow.segmentation.templates` · **Test:** `python -m pytest tests/test_templates.py`
+
+### Step 1: linear-stretch mean (RehabHub-style reference)
+
+**How it works** (`rep_matrix`, `mean_template`):
+1. Cut each rep from the smoothed θ_HT at its 5 % boundaries (from the B3 segmenter).
+2. Normalise to the user's range: `(θ − rest_ref) / rom_ref`, so rest = 0 and the user's typical peak = 1. This is the plan's guard against amplitude dominating DTW. It's per person, not per rep, so a capped rep still looks smaller.
+3. Stretch each rep to 60 samples with `np.interp` on real timestamps (`resample_rep`). One valid frame either side of the rep is included, so the first and last samples are interpolated, not clamped.
+4. Template = sample-by-sample mean.
+
+`TEMPLATE_LEN = 60` (about one 2 s rep at 30 fps) is a design choice. Templates must come from training subjects only.
+
+**Validation against the exact true shape** (known for the mocks; error in units of the user's range):
+
+| Mock | Error vs true shape | Correlation | Peak position (ideal 29.5) | Ends (expected) |
+| --- | --- | --- | --- | --- |
+| normal | 0.0048 (≈0.4°) | 0.9999 | 29 | 0.056 (0.055) |
+| slow | 0.0020 | 1.0000 | 29 | 0.059 |
+| capped | 0.0039 | 0.9998 | 29, height 0.44 | 0.028 |
+| low_rom | 0.0322 (≈0.5°) | 0.996 | 27 | 0.076 (0.076) |
+
+- Slow and normal templates are almost identical (DTW 0.036): stretching removes overall tempo, so duration must be a separate feature (B6).
+- The capped template stays clearly different (DTW 2.46): per-person normalisation keeps the smaller range visible.
+
+**Bug found and fixed:** `resample_rep` first used only frames inside the rep, so the first and last samples were clamped to the nearest inside frame rather than interpolated at the boundary. A unit test on a straight line caught it. After the fix, the template ends match the expected 5 % level.
+
+### Step 2: DBA (DTW Barycenter Averaging)
+
+**How it works** (`dba_template`): start from the mean template, then repeat until it stops improving (at most 20 rounds):
+1. Align every rep to the current template with banded DTW (`dtw_path`, band 15 %).
+2. Replace each template sample with the mean of all rep samples aligned to it.
+
+Each round can only lower or keep the total squared DTW distance, so DBA is never worse than the mean it starts from on that measure. The tests check this.
+
+**Results** (spread = mean DTW distance from each rep to the template):
+
+| Data | Mean spread | DBA spread | Gain | Mean peak | DBA peak |
+| --- | --- | --- | --- | --- | --- |
+| normal | 0.102 | 0.088 | 14 % | 1.008 | 1.020 |
+| slow | 0.106 | 0.089 | 16 % | 1.010 | 1.027 |
+| capped | 0.083 | 0.063 | 24 % | 0.444 | 0.460 |
+| low_rom | 0.163 | 0.132 | 19 % | 1.002 | 1.043 |
+| timing-varied (synthetic) | 0.199 | 0.104 | 48 % | 0.929 | 1.000 |
+
+The synthetic set has 20 unit-height reps whose peak falls anywhere between 35 % and 65 % of the rep. The committed mocks all peak at exactly 50 %, so they can't show what DBA is for.
+
+**Finding: DBA's advantage depends on the data.**
+- **Timing varies between reps** (the realistic case): DBA keeps the true peak height (1.00, where the mean blurs it to 0.93) and is closer to the typical rep.
+- **All reps share the same timing** (our mocks): DBA fits the noise. Its error vs the true shape is 0.9–1.2° against 0.2–0.4° for the mean, with peaks 1–3 % too high. This overshoot grows with noise (synthetic, noise 0.03: peak 1.014).
+- So "DBA beats mean on distance to members" holds everywhere, but that doesn't make it more correct. Which template scores better is P2's "reference" factor, decided on real data; B5 provides both.
+
+**Speed:** mean template is instant; DBA on 10 reps takes under a second, but on a pooled-size set of 240 reps about 18 s (hits the 20-round cap). In C's leave-one-subject-out P2 grid that's about 5 minutes per configuration (18 folds), worth telling C.
+
+**`dtw_path`** (new in `dtw.py`): returns the distance and the warping path, preferring the diagonal on ties. On the B4 hand example it gives exactly the hand-worked path. On 50 random pairs the path's cost equals the distance and every step is valid. `dtw_distance` is unchanged (B4 tests pass).
+
 ## Decisions log
 
 | Date | Decision |
@@ -172,3 +229,5 @@ The values 20 % / 15 % / 30 % / 0.4 s are design inferences, not literature valu
 | 2026-11-18 | B3 branched from `b1-mock-frames`; thresholds 20 % / 15 % of rom_ref, min prominence 30 %, min duration 0.4 s (to tune); `low_rom` mock added for the v0-fails case |
 | 2026-11-18 | One branch for all B work (`Melchior-branch`); PR into main deferred until B6 |
 | 2026-11-18 | B4 DTW: squared cost + sqrt (dtaidistance convention), band = round(band_frac × longer length), default 15 % |
+| 2026-11-18 | B4 committed and pushed (`2023cad`, tracking `2da9475`) |
+| 2026-11-18 | B5: templates on (θ − rest_ref) / rom_ref, 60 samples; both mean and DBA kept, choice left to P2 |
