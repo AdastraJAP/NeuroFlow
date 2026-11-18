@@ -50,6 +50,30 @@ def dtw_distance(x, y, band_frac=0.15):
     Returns sqrt of the summed squared differences along the best path.
     NaN in either series is not allowed (fill or drop gaps first).
     """
+    D = _cost_table(x, y, band_frac)
+    return math.sqrt(D[-1, -1])
+
+
+def dtw_path(x, y, band_frac=0.15):
+    """
+    Like dtw_distance, but also returns the best warping path as a list of
+    (i, j) index pairs from (0, 0) to (n-1, m-1). Ties prefer the diagonal step.
+    Used by DBA (templates.py) to see which samples line up.
+    """
+    D = _cost_table(x, y, band_frac)
+    i, j = D.shape[0] - 1, D.shape[1] - 1
+    path = [(i - 1, j - 1)]
+    while (i, j) != (1, 1):
+        steps = ((D[i - 1, j - 1], i - 1, j - 1),   # diagonal first, so ties go diagonal
+                 (D[i - 1, j], i - 1, j),
+                 (D[i, j - 1], i, j - 1))
+        _, i, j = min(steps, key=lambda s: s[0])
+        path.append((i - 1, j - 1))
+    return math.sqrt(D[-1, -1]), path[::-1]
+
+
+def _cost_table(x, y, band_frac):
+    """Accumulated cost table D (with one padding row/column) for x vs y."""
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
     n, m = len(x), len(y)
@@ -69,7 +93,7 @@ def dtw_distance(x, y, band_frac=0.15):
         for j in range(j_lo, j_hi + 1):
             cost = (x[i - 1] - y[j - 1]) ** 2
             D[i, j] = cost + min(D[i - 1, j - 1], D[i - 1, j], D[i, j - 1])
-    return math.sqrt(D[n, m])
+    return D
 
 
 def main():
