@@ -22,8 +22,21 @@ Methods:
     "crossing"   raw threshold crossing times, kept only as a reference point
 
 Thresholds 30/20 deg are v0 starting values on mocks, not literature values;
-tune them on training subjects only. B3 replaces them with fractions of the
-user's calibrated ROM.
+tune them on training subjects only.
+
+B3: segmenter v1 -- ROM-normalised thresholds (S3 core), segment_reps().
+Same state machine and the same 5% boundary rule, but the thresholds scale with
+the user's calibrated range instead of being fixed degrees:
+    T_high = rest_ref + START_FRAC * rom_ref   (20%)
+    T_low  = rest_ref + END_FRAC   * rom_ref   (15%)
+plus two filters on each detected rep:
+    minimum prominence: peak - rest_ref >= MIN_PROM_FRAC * rom_ref   (30%)
+    minimum duration:   end - start      >= MIN_DUR_S                (0.4 s)
+rest_ref and rom_ref come from calibrate() on a separate calibration block (in
+the protocol: the Normal block of session 1). All four fractions/limits are
+design inferences, not literature values: tune them on training subjects only.
+A fixed 30 deg (or Pavlikov's 55 deg) threshold never fires for a user whose
+whole range stays below it; fractions of their own range always can.
 
 Run (from the repo root):
     python -m neuroflow.segmentation.segment
@@ -43,6 +56,12 @@ SMOOTH_ORDER = 2
 MAX_SEARCH_S = 1.5      # how far before/after a crossing to look for rest
 TOLERANCE_MS = 67.0     # golden criterion: +-2 frames at 30 fps on start and end
 METHODS = ("pct_range", "crossing")
+
+# B3 (ROM-normalised) settings -- fractions of the calibrated range rom_ref
+START_FRAC = 0.20       # open a rep above rest + 20% of rom_ref
+END_FRAC = 0.15         # close it below rest + 15% of rom_ref
+MIN_PROM_FRAC = 0.30    # a rep must rise at least 30% of rom_ref above rest
+MIN_DUR_S = 0.4         # and last at least 0.4 s between its boundaries
 
 REST, RISING, PEAK, RETURNING = "REST", "RISING", "PEAK", "RETURNING"
 
@@ -108,8 +127,9 @@ def cross_time(t_ms, x, i_a, i_b, level):
     return t_ms[i_a] + f * (t_ms[i_b] - t_ms[i_a])
 
 
-def boundaries(theta_s, t_ms, reps, method="pct_range", frac=BOUNDARY_FRAC):
-    """Return a list of (t_start_ms, t_peak_ms, t_end_ms) for each detected rep."""
+def boundaries(theta_s, t_ms, reps, method="pct_range", frac=BOUNDARY_FRAC, t_low=T_LOW):
+    """Return a list of (t_start_ms, t_peak_ms, t_end_ms) for each detected rep.
+    t_low is the detection's closing threshold; frames below it count as rest."""
     if method == "crossing":
         return [(t_ms[a], t_ms[p], t_ms[b]) for a, p, b in reps]
     if method != "pct_range":
@@ -125,8 +145,8 @@ def boundaries(theta_s, t_ms, reps, method="pct_range", frac=BOUNDARY_FRAC):
         hi = min(next_up, i_down + max_n)
 
         peak = theta_s[i_peak]
-        rest_s = rest_level(theta_s, lo, i_up)
-        rest_e = rest_level(theta_s, i_down, hi)
+        rest_s = rest_level(theta_s, lo, i_up, t_low)
+        rest_e = rest_level(theta_s, i_down, hi, t_low)
         if rest_s is None or rest_e is None:
             out.append((np.nan, t_ms[i_peak], np.nan))  # no rest seen: boundary unknown
             continue
@@ -147,16 +167,12 @@ def boundaries(theta_s, t_ms, reps, method="pct_range", frac=BOUNDARY_FRAC):
     return out
 
 
-def segment_fixed(frames, method="pct_range", t_high=T_HIGH, t_low=T_LOW):
-    """
-    Segment one block of frames.parquet into reps (v0, fixed thresholds).
-    Returns a DataFrame with the reps.parquet timing columns.
-    """
-    frames = frames.sort_values("t_capture_ms")
-    t = frames["t_capture_ms"].to_numpy(dtype=float)
-    theta_s = smooth(t, frames["theta_ht_deg"].to_numpy())
-    reps = boundaries(theta_s, t, detect(theta_s, t_high, t_low), method)
+REP_COLUMNS = ["rep_id", "subject_id", "session_id", "condition", "level", "seg_method",
+               "t_start_ms", "t_peak_ms", "t_end_ms", "duration_s"]
 
+
+def _rep_table(frames, reps, seg_method):
+    """Build the reps.parquet timing columns from (t_start, t_peak, t_end) tuples."""
     first = frames.iloc[0]
     rows = []
     for n, (t_s, t_p, t_e) in enumerate(reps):
@@ -166,13 +182,74 @@ def segment_fixed(frames, method="pct_range", t_high=T_HIGH, t_low=T_LOW):
             "session_id": first["session_id"],
             "condition": first["condition"],
             "level": first["level"],
-            "seg_method": f"fsm_fixed_{method}",
+            "seg_method": seg_method,
             "t_start_ms": t_s,
             "t_peak_ms": t_p,
             "t_end_ms": t_e,
             "duration_s": (t_e - t_s) / 1000.0,
         })
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=REP_COLUMNS)
+
+
+def _run(frames, t_high, t_low, method):
+    """Smooth, detect and place boundaries. Returns (reps, peak angles)."""
+    frames = frames.sort_values("t_capture_ms")
+    t = frames["t_capture_ms"].to_numpy(dtype=float)
+    theta_s = smooth(t, frames["theta_ht_deg"].to_numpy())
+    det = detect(theta_s, t_high, t_low)
+    reps = boundaries(theta_s, t, det, method, t_low=t_low)
+    return frames, reps, [float(theta_s[p]) for _, p, _ in det]
+
+
+def segment_fixed(frames, method="pct_range", t_high=T_HIGH, t_low=T_LOW):
+    """
+    B2: segment one block of frames.parquet into reps with fixed thresholds (deg).
+    Returns a DataFrame with the reps.parquet timing columns.
+    """
+    frames, reps, _ = _run(frames, t_high, t_low, method)
+    return _rep_table(frames, reps, f"fsm_fixed_{method}")
+
+
+def calibrate(frames):
+    """
+    Estimate (rest_ref, rom_ref) in degrees from a calibration block (~10 normal reps).
+    Self-scaling, so it also works for a user with a small range:
+      1. rest = 10th percentile of the smoothed angle (most frames are at rest);
+         rough range = 98th percentile - rest.
+      2. detect reps with thresholds at 50% / 40% of that rough range;
+      3. rom_ref = median rep peak - rest.
+    """
+    t = frames.sort_values("t_capture_ms")["t_capture_ms"].to_numpy(dtype=float)
+    theta_s = smooth(t, frames.sort_values("t_capture_ms")["theta_ht_deg"].to_numpy())
+    rest = float(np.percentile(theta_s, 10))
+    rough = float(np.percentile(theta_s, 98)) - rest
+    det = detect(theta_s, rest + 0.5 * rough, rest + 0.4 * rough)
+    if not det:
+        raise ValueError("calibration block has no detectable reps")
+    rom = float(np.median([theta_s[p] for _, p, _ in det])) - rest
+    return rest, rom
+
+
+def segment_reps(frames, rom_ref, rest_ref=None, method="pct_range"):
+    """
+    B3: segment one block with thresholds scaled to the user's calibrated range.
+    rom_ref, rest_ref come from calibrate() on a separate calibration block; if
+    rest_ref is None it is estimated from this block (10th percentile).
+    """
+    if rest_ref is None:
+        rest_ref = float(np.percentile(frames["theta_ht_deg"].dropna(), 10))
+    t_high = rest_ref + START_FRAC * rom_ref
+    t_low = rest_ref + END_FRAC * rom_ref
+    frames, reps, peaks = _run(frames, t_high, t_low, method)
+
+    keep = []
+    for (t_s, t_p, t_e), pk in zip(reps, peaks):
+        if pk - rest_ref < MIN_PROM_FRAC * rom_ref:
+            continue                                    # too small to be a rep
+        if not np.isnan(t_s) and not np.isnan(t_e) and (t_e - t_s) / 1000.0 < MIN_DUR_S:
+            continue                                    # too short to be a rep
+        keep.append((t_s, t_p, t_e))
+    return _rep_table(frames, keep, f"fsm_rom_{method}")
 
 
 def compare_to_truth(reps, truth):
@@ -191,9 +268,11 @@ def compare_to_truth(reps, truth):
     return pd.DataFrame(rows)
 
 
-def validate(frames, truth, method="pct_range"):
-    """Return (passed, n_found, errors DataFrame) for one mock against its truth file."""
-    reps = segment_fixed(frames, method=method)
+def validate(frames, truth, method="pct_range", reps=None):
+    """Return (passed, n_found, errors DataFrame) for one mock against its truth file.
+    By default runs B2 (segment_fixed); pass `reps` to validate another segmenter's output."""
+    if reps is None:
+        reps = segment_fixed(frames, method=method)
     err = compare_to_truth(reps, truth)
     if err is None or len(reps) != len(truth):
         return False, len(reps), err
@@ -235,6 +314,41 @@ def main():
         print()
     print("passes on all four mocks: " +
           ", ".join(f"{m}={'yes' if p else 'no'}" for m, p in ok_all.items()))
+
+    # ---- B3: v0 (fixed) vs v1 (ROM-normalised) on all five mocks ----
+    calib = calibration_refs()
+    print(f"\nB3: ROM-normalised thresholds start {START_FRAC:.0%} / end {END_FRAC:.0%} of rom_ref, "
+          f"min prominence {MIN_PROM_FRAC:.0%}, min duration {MIN_DUR_S} s")
+    for subj, (rest, rom) in calib.items():
+        print(f"  calibration {subj}: rest_ref {rest:.1f} deg, rom_ref {rom:.1f} deg "
+              f"-> T_high {rest + START_FRAC * rom:.1f}, T_low {rest + END_FRAC * rom:.1f}")
+    print(f"\n{'variant':<8} {'segmenter':<10} {'reps':>6} {'max|start err|':>15} "
+          f"{'max|end err|':>13}  pass")
+    print("-" * 60)
+    for v in variants + ["low_rom"]:
+        frames = pd.read_parquet(os.path.join(fx, f"mock_frames_{v}.parquet"))
+        truth = pd.read_csv(os.path.join(fx, f"mock_frames_{v}_truth.csv"))
+        rest, rom = calib[frames["subject_id"].iloc[0]]
+        for name, reps in (("v0 fixed", segment_fixed(frames)),
+                           ("v1 rom", segment_reps(frames, rom, rest))):
+            ok, n, err = validate(frames, truth, reps=reps)
+            if err is None:
+                print(f"{v:<8} {name:<10} {n:>3}/{len(truth):<2} {'-':>15} {'-':>13}  NO")
+                continue
+            print(f"{v:<8} {name:<10} {n:>3}/{len(truth):<2} {err['err_start_ms'].abs().max():>15.1f} "
+                  f"{err['err_end_ms'].abs().max():>13.1f}  {'yes' if ok else 'NO'}")
+
+
+def calibration_refs():
+    """(rest_ref, rom_ref) per mock subject, from a separate calibration block
+    (a Normal block generated with a different seed, never the block under test)."""
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "fixtures"))
+    from make_mock_frames import make_session
+    return {
+        "mock01": calibrate(make_session("normal", seed=7)[0]),
+        "mock02": calibrate(make_session("low_rom", seed=7)[0]),
+    }
 
 
 if __name__ == "__main__":

@@ -55,7 +55,13 @@ VARIANTS = {
     "slow":    ("slow",       "2x",    2.0,       90.0, 0.0),
     "capped":  ("rom_cap",    "45deg", 1.0,       45.0, 0.0),
     "leaning": ("trunk_lean", "large", 1.0,       90.0, 12.0),
+    # B3: a different user whose own full range only reaches ~25 deg. Fixed 30 deg
+    # thresholds (v0) never fire; ROM-normalised thresholds (v1) should.
+    "low_rom": ("low_rom",    "25deg", 1.0,       25.0, 0.0),
 }
+# Per-variant overrides (variants not listed keep the defaults, so their files do not change).
+PEAK_SD = {"low_rom": 1.0}          # default 3.0 deg rep-to-rep peak spread
+SUBJECT = {"low_rom": "mock02"}     # default "mock01"
 
 
 def make_rep(t_ms, rest, peak, dur_ms):
@@ -86,13 +92,13 @@ def make_timeline(total_ms, rng):
     return T0_MS + np.cumsum(steps)
 
 
-def plan_reps(n_reps, dur_scale, peak, rng):
+def plan_reps(n_reps, dur_scale, peak, rng, peak_sd=3.0):
     """Choose start time, duration and peak for every rep (times relative to T0)."""
     reps = []
     t = 2000.0  # 2 s of rest before the first rep
     for _ in range(n_reps):
         dur = 2000.0 * dur_scale * rng.uniform(0.9, 1.1)
-        reps.append({"start": t, "dur": dur, "peak": peak + rng.normal(0.0, 3.0)})
+        reps.append({"start": t, "dur": dur, "peak": peak + rng.normal(0.0, peak_sd)})
         t += dur + rng.uniform(1000.0, 1500.0)  # rest between reps
     return reps, t + 2000.0  # 2 s of rest after the last rep
 
@@ -102,7 +108,7 @@ def make_session(variant, n_reps=10, noise_deg=1.0, seed=SEED):
     condition, level, dur_scale, peak, lean_max = VARIANTS[variant]
     rng = np.random.default_rng(seed)
 
-    reps, total_ms = plan_reps(n_reps, dur_scale, peak, rng)
+    reps, total_ms = plan_reps(n_reps, dur_scale, peak, rng, PEAK_SD.get(variant, 3.0))
     t = make_timeline(total_ms, rng)
     rel = t - T0_MS
     rest = 10.0
@@ -121,7 +127,7 @@ def make_session(variant, n_reps=10, noise_deg=1.0, seed=SEED):
 
     frames = pd.DataFrame({
         "schema_version": SCHEMA_VERSION,
-        "subject_id": "mock01",
+        "subject_id": SUBJECT.get(variant, "mock01"),
         "session_id": "s1",
         "block_id": variant,
         "condition": condition,
@@ -184,6 +190,8 @@ def check_session(variant, frames, truth):
 
     if variant == "capped":
         assert frames["theta_ht_deg"].max() < 55.0, "capped mock must stay below 55 deg"
+    if variant == "low_rom":
+        assert truth["peak_deg"].max() < 30.0, "low_rom reps must not reach the 30 deg v0 threshold"
     if variant == "leaning":
         assert frames["trunk_lean_deg"].max() > 8.0
     else:
