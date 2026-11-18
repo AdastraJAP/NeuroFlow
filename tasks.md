@@ -129,6 +129,35 @@ The values 20 % / 15 % / 30 % / 0.4 s are design inferences, not literature valu
 
 **Tests added:** v1 rep count on all five mocks; v1 boundaries within ±67 ms on the four original mocks (low_rom excluded on purpose, see the known limit); v0 finds 0 reps on low_rom; no false reps on a rest-only block.
 
+## B4: DTW with a Sakoe-Chiba band
+
+**File:** `neuroflow/segmentation/dtw.py`, function `dtw_distance(x, y, band_frac=0.15)` · **Run:** `python -m neuroflow.segmentation.dtw` · **Test:** `python -m pytest tests/test_dtw.py`
+
+**Idea:** DTW lines up two series when one runs faster or slower in places. It fills a cost table `D[i, j] = (x[i] − y[j])² + min(D[i−1, j−1], D[i−1, j], D[i, j−1])`, and the distance is `sqrt(D[n, m])`. This is the same convention as the `dtaidistance` library, so the two can be compared exactly.
+
+**Band:** cells must stay near the diagonal, so a point can shift by at most `w = round(band_frac × longer length)` samples. For unequal lengths, the length difference is added on the side where the longer series needs room. `band_frac=None` means unconstrained; `0` means diagonal only, which equals the Euclidean distance.
+
+**Worked example:** x = [0, 1, 2, 1, 0], y = [0, 0, 1, 2, 1] (y is x shifted one sample to the right).
+- Diagonal only: differences 0, 1, 1, −1, −1, so the distance is √4 = 2.
+- 20 % band (w = 1) or unconstrained: the path (0,0)(0,1)(1,2)(2,3)(3,4)(4,4) costs only 1.
+
+**Checks (all pass):**
+- The hand example above.
+- Identical series give 0; band 0 equals the Euclidean distance.
+- A wider band never increases the distance (20 random pairs × 6 band settings).
+- Matches `dtaidistance` 2.5.1 exactly (max difference 0.0) on 200 random pairs of unequal length × 4 band settings. Note that `dtaidistance`'s `window` equals our `w + 1`.
+- NaN or empty input raises an error, so gaps must be filled or dropped first.
+
+**What the band does on a rep:** a rep with its peak at 30 % instead of 50 % (same range, 60 samples) scores 0.135 unconstrained or with a 20 % band, because the warping absorbs a 12-sample shift. With a 10 % band it scores 0.957. This is why band width is a P2 factor: too wide and DTW is blind to timing.
+
+**Bug found and fixed during B4:** my first band rule widened the band symmetrically for unequal lengths. It disagreed with `dtaidistance` on unequal-length pairs; adopting its rule (extra room only on the longer side) gives an exact match.
+
+**Not decided here, left for B5/B6:** DTW runs on θ_HT divided by the personal peak so amplitude doesn't dominate (plan pitfall), with amplitude kept as its own feature. Reps should be resampled to a common length first; the band then limits within-rep timing distortion, and overall slowness goes into the duration feature.
+
+**Speed:** about 1 ms per 60 × 60 pair with a 15 % band (plain Python loops).
+
+**Dependency:** `dtaidistance` is used only by the test; it's skipped if not installed.
+
 ## Decisions log
 
 | Date | Decision |
@@ -141,3 +170,5 @@ The values 20 % / 15 % / 30 % / 0.4 s are design inferences, not literature valu
 | 2026-11-18 | B2 validated: all four mocks pass (10/10 reps, max error 59.8 ms) |
 | 2026-11-18 | B1 + B2 committed and pushed (`e716e9e`), tracking files committed (`1fba1f2`) |
 | 2026-11-18 | B3 branched from `b1-mock-frames`; thresholds 20 % / 15 % of rom_ref, min prominence 30 %, min duration 0.4 s (to tune); `low_rom` mock added for the v0-fails case |
+| 2026-11-18 | One branch for all B work (`Melchior-branch`); PR into main deferred until B6 |
+| 2026-11-18 | B4 DTW: squared cost + sqrt (dtaidistance convention), band = round(band_frac × longer length), default 15 % |
