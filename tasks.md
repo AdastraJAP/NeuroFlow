@@ -215,6 +215,65 @@ The synthetic set has 20 unit-height reps whose peak falls anywhere between 35 %
 
 **`dtw_path`** (new in `dtw.py`): returns the distance and the warping path, preferring the diagonal on ties. On the B4 hand example it gives exactly the hand-worked path. On 50 random pairs the path's cost equals the distance and every step is valid. `dtw_distance` is unchanged (B4 tests pass).
 
+## B6: per-rep features
+
+**File:** `neuroflow/segmentation/features.py` · **Run:** `python -m neuroflow.segmentation.features` · **Test:** `python -m pytest tests/test_features.py`
+
+Each feature is a separate function, validated on its own (on hand examples and synthetic reps with known answers) before `rep_features(frames, reps, rest_ref, rom_ref)` combines them into `reps.parquet` columns. Note that the contract signature was `rep_features(frames, reps)`; `rest_ref` and `rom_ref` (the user's calibration) were added because the personal-centred range needs them.
+
+| Column | Definition | Choice to note |
+| --- | --- | --- |
+| `duration_s` | (end − start) / 1000, between the 5 % boundaries | Kept absolute; dividing by the user's calibration median duration is left to the scorer (C) |
+| `time_to_peak_ratio` | (peak − start) / (end − start) | 0.5 = symmetric rep |
+| `rom_peak_deg` | peak smoothed θ_HT inside the rep − rest_ref | Range = degrees moved from rest, not the absolute peak angle |
+| `rom_rel_personal` | rom_peak_deg / rom_ref − 1 | Ratio form, so 0 = the user's typical range, −0.5 = half; comparable across users |
+| `sparc` | spectral arc length of the absolute angular speed (Balasubramanian et al. 2015) | Whole rep (raise + lower), on the smoothed angle resampled to an even grid; zero-padding 4, cut-off 10 Hz, threshold 0.05 as in the authors' reference code from memory, **to verify against the original before citing** |
+
+### Validation, feature by feature
+
+**Duration:**
+- Hand example: 1,730 ms gives 1.73 s; an unknown boundary gives NaN.
+- On the four mocks, every rep is within 2 × 67 ms of the truth, since each boundary is within ±67 ms.
+
+**Time-to-peak ratio:**
+- Hand examples: 600 / 2000 = 0.3, 1000 / 2000 = 0.5.
+- On synthetic asymmetric reps with the peak at 30 %, 50 % or 70 % of the movement, run through the B3 segmenter, it recovers the true ratio between the 5 % boundaries within 0.03.
+
+**Peak range:**
+- Hand example: a rep from 10° to 70° gives 60° (within 0.5°) and −0.25 personal.
+- On all five mocks, the mean error vs the true range is under 1.5°. Mock results: normal 80.5° (true 80.1°), slow 80.8° (80.1°), capped 35.7° (35.1°), low_rom 15.9° (15.0°). The small upward bias comes from the slightly low rest estimate (9.6° vs 10°) and noise at the peak.
+
+**SPARC** (on clean synthetic reps):
+- Ignores amplitude: identical at ½× and 2× height.
+- Duration-robust: −2.342, −2.350 and −2.350 at 1.7 s, 3.4 s and 6.8 s.
+- Falls steadily with 6 Hz tremor: 0 → 0.5 → 1 → 2 → 4° gives −2.34, −2.70, −2.85, −3.18, −3.57.
+- A two-step raise scores −2.76 against −1.55 for a smooth raise.
+- Flat, NaN or too-short input returns NaN.
+- `rep_speed` resamples to an even grid correctly on a jittered clock (a 2°/s ramp gives exactly 2°/s).
+
+### Integration (`rep_features` on the mocks)
+
+| Mock | Duration (true) | Time to peak | Range (true) | Personal range | SPARC |
+| --- | --- | --- | --- | --- | --- |
+| normal | 1.73 s (1.73) | 0.493 | 80.5° (80.1) | +0.01 | −2.68 |
+| slow | 3.46 s (3.46) | 0.502 | 80.8° (80.1) | +0.01 | −2.82 |
+| capped | 1.72 s (1.73) | 0.501 | 35.7° (35.1) | −0.55 | −2.97 |
+| low_rom | 1.69 s (1.73) | 0.498 | 15.9° (15.0) | +0.04 | −3.54 |
+
+Integration tests check: all five columns are present with no NaN on the mocks; slow / normal duration ≈ 2; time to peak ≈ 0.5; personal range ≈ 0 (normal) and ≈ −0.56 (capped); SPARC normal ≈ slow; unknown boundaries propagate NaN.
+
+### Known limit: SPARC confuses noise with jerkiness on small movements
+
+Without noise, every mock scores exactly −2.421, whatever its range or duration. With 1° of angle noise: normal −2.68, capped −2.97, low_rom −3.54. Noise is a larger share of a small movement, and SPARC can't tell noise from tremor. On a clean full rep, 2° of noise shifts SPARC about as much as 0.5° of real tremor.
+
+So a capped or low-range rep will look less smooth from noise alone. This matters for P2/P3 (the band condition is meant to show up as lower smoothness). The definition is unchanged; options for later are stronger smoothing before SPARC, comparing SPARC only between conditions with similar range, or letting the scorer account for range. Check on real webcam noise first, as the plan says.
+
+### Not in B6 (for later tasks)
+
+- `dtw_dist`, `dtw_band_frac`, `ref_id`: need a template fitted on training subjects only, so they're computed inside C's leave-one-subject-out loop using B4/B5 functions.
+- `valid_frame_frac`, `rep_conf`: need A's confidence flags.
+- Compensation features: B7.
+
 ## Decisions log
 
 | Date | Decision |
@@ -231,3 +290,5 @@ The synthetic set has 20 unit-height reps whose peak falls anywhere between 35 %
 | 2026-11-18 | B4 DTW: squared cost + sqrt (dtaidistance convention), band = round(band_frac × longer length), default 15 % |
 | 2026-11-18 | B4 committed and pushed (`2023cad`, tracking `2da9475`) |
 | 2026-11-18 | B5: templates on (θ − rest_ref) / rom_ref, 60 samples; both mean and DBA kept, choice left to P2 |
+| 2026-11-18 | B5 committed and pushed (`14fb690`, tracking `e16dacc`) |
+| 2026-11-18 | B6: range = excursion from rest; personal range = rom / rom_ref − 1; SPARC on whole rep; duration kept absolute |
