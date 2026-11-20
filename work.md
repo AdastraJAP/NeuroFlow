@@ -1,6 +1,6 @@
 # Member C: Wilkend's Work Plan
 
-Branch: `Wilkend` (from `main`, `d3aa726`) · Owner: Wilkend Auguste · Last updated: 2026-11-18
+Branch: `Wilkend` (rebased on `main`, `3a117d2`) · Owner: Wilkend Auguste · Last updated: 2026-11-20
 
 Source documents (from Melchior, Nov 17): *Implementation Plan: Tasks, Workflow and Member Prompts*, *Research Brief: Evidence, Datasets and Architecture*, *Research Basis (3 + 3 contributions)*, and Prof. Huang's email of Nov 17 ("Re: Next meeting").
 
@@ -52,8 +52,7 @@ python -m neuroflow.scoring.baseline     # C2: RehabHub baseline under LOSO
 python -m pytest tests/ -q               # all tests
 ```
 
-**Pushing:** the `origin` remote is HTTPS with no stored login. Melchior pushes over SSH:
-`git push git@github.com:AdastraJAP/NeuroFlow.git Wilkend`
+**Pushing:** `gh` is logged in as `7willA`, so plain HTTPS works: `git push origin Wilkend`. (Melchior pushes over SSH.)
 
 ---
 
@@ -89,12 +88,12 @@ Stages talk **only through tables** (`schema_version = 1`). Never rename a colum
 
 ## 4. My tasks (C1–C9) and status
 
-Legend: ✅ done · 🟡 code written, not yet reviewed/committed · ⬜ not started. Size: S = 1, M = 2, L = 3 points (17 total).
+Legend: ✅ done · 🟡 committed, in review (PR open) · ⬜ not started. Size: S = 1, M = 2, L = 3 points (17 total).
 
 | ID | Task | Size | Status | Done when |
 | --- | --- | --- | --- | --- |
-| C1 | Mock `reps.parquet` generator + subject-wise `folds.csv` builder (locked test subset) | S | 🟡 | Mock with 18 subjects; no subject in two folds |
-| C2 | RehabHub baseline: Z of DTW distance vs normal reps, score = 100 / max(Z, 1) | S | 🟡 | Reproduces the saturation: many reps with Z < 1 all get 100 |
+| C1 | Mock `reps.parquet` generator + subject-wise `folds.csv` builder (locked test subset) | S | 🟡 in review | Mock with 18 subjects; no subject in two folds |
+| C2 | RehabHub baseline: Z of DTW distance vs normal reps, score = 100 / max(Z, 1) | S | 🟡 in review | Reproduces the saturation: many reps with Z < 1 all get 100 |
 | C3 | Scorer v1: standardise features → Ledoit-Wolf covariance → Mahalanobis distance → pooled ECDF → 0–100 | M | ⬜ | A shifted mock group scores lower than normal; ECDF of training normals ≈ uniform |
 | C4 | P3 sub-scores: per-feature ECDF for lean, elbow, hike (and rom, tempo, shape, smooth); feedback code from the worst sub-score | M | ⬜ | A lean-heavy mock rep returns feedback code "trunk lean" |
 | C5 | LOSO harness: fit on train subjects, score the held-out subject, AUROC per condition | M | ⬜ | AUROC ≈ 0.5 on shuffled labels; high on a clearly shifted mock |
@@ -244,7 +243,8 @@ Until G2, I build everything on `fixtures/mock_reps.parquet`. Because the schema
 
 ## 11. Next actions
 
-- [ ] Review C1 + C2 together (code walk-through), then commit on `Wilkend`
+- [x] Commit C1 + C2 on `Wilkend` (rebased on `main` after PR #1), push, open PR for Melchior's review
+- [ ] Melchior reviews C1 + C2; merge into `main`
 - [ ] Mentor mode from C3 on: idea + hint first, code after
 - [ ] C3 scorer v1 → C4 sub-scores → C5 LOSO harness (C3–C5 make gate G3 possible)
 - [ ] Reply in the group about the angle decision (section 8, point 1)
