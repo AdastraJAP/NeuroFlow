@@ -1,6 +1,6 @@
 # Member B: What We Did and Why
 
-Last updated: 2026-11-18. Status of every task is in `task_status.md`; this file explains the work behind it.
+Last updated: 2026-11-21. Status of every task is in `task_status.md`; this file explains the work behind it.
 
 ## Setup
 
@@ -272,7 +272,39 @@ So a capped or low-range rep will look less smooth from noise alone. This matter
 
 - `dtw_dist`, `dtw_band_frac`, `ref_id`: need a template fitted on training subjects only, so they're computed inside C's leave-one-subject-out loop using B4/B5 functions.
 - `valid_frame_frac`, `rep_conf`: need A's confidence flags.
-- Compensation features: B7.
+- Compensation features: B7 (done, below).
+
+## B7: compensation features
+
+**File:** `neuroflow/segmentation/features.py` (`rep_window_extreme`, `COMPENSATION`, added to `rep_features()`) · **Test:** `python -m pytest tests/test_features.py`
+
+**Idea:** no geometry here. A4 writes one value per frame for `trunk_lean_deg`, `elbow_deg` and `hike_ratio`. B7 reduces each one to a single number per rep between the 5 % boundaries, the same windowing as `peak_rom()`.
+
+| Column | Per rep | Note |
+| --- | --- | --- |
+| `max_trunk_lean_deg` | max of \|lean\| | absolute value: how A4 signs lean is still open (ask A) |
+| `min_elbow_deg` | min | 180° = straight arm |
+| `max_hike_ratio` | max | exploratory (weak evidence) |
+
+**Details:** each signal is smoothed first (`segment.smooth`), because the max of raw noise is biased upward. NaN frames are put back after smoothing, so a rep with no valid frames gives NaN instead of an interpolated value. A column missing from frames (e.g. A4 v0) gives NaN, never 0. The literature flags (5.2°, 153.4°, 0.174) belong to C4, not here.
+
+**New mocks (B1 extension):** `elbow_30` (elbow 175° → ~145° at each peak) and `hike` (hike → ~0.20), named after C's blocks. Same seed and no extra random draws, so the five older mocks are byte-identical and θ_HT is identical to normal.
+
+**Results (B3 segmenter):** normal 0.8° / 173.7° / 0.012; leaning lean 12.3°; elbow_30 elbow 144.6°; hike 0.203. Each mock moves only its own feature.
+
+## B9: manual labelling helper
+
+**File:** `neuroflow/segmentation/label_tool.py` · **Run:** `python -m neuroflow.segmentation.label_tool CLIP --frames FRAMES.parquet --labeler NAME` (no clip: self-test) · **Test:** `python -m pytest tests/test_label_tool.py`
+
+**How:** OpenCV window. a/d step 1 frame, j/l 10 frames, space play, m marks the next point (start → peak → end), u undo, s save, q save and quit. Click the timeline strip at the bottom to jump. The strip shows θ_HT if the frames file has it. Re-opening a clip resumes from its labels CSV.
+
+**Labelling rule:** start/end at rest + 5 % of the rep's range, not first visible movement (same as B1/B2). Leave out a rep you can't judge.
+
+**Times:** with the clip's `frames.parquet`, video frame i gets `t_capture_ms` of `frame_idx` i, the segmenter's clock. Without it, i × 1000 / fps, flagged `time_source = video_fps` and not comparable with segmenter output.
+
+**Output:** CSV with `rep_idx, t_start_ms, t_peak_ms, t_end_ms, subject_id, session_id, block_id, labeler, time_source`. `load_labels()` drops unfinished reps, checks start < peak < end and no overlap, and loads straight into `segment.validate(frames, labels, reps=...)` for B8.
+
+**Not yet tried:** the interactive window. On this WSL box OpenCV's Qt window needs `sudo apt install -y libsm6 libice6`. Logic, timing, drawing and the B8 hand-off are tested.
 
 ## Decisions log
 
@@ -292,3 +324,7 @@ So a capped or low-range rep will look less smooth from noise alone. This matter
 | 2026-11-18 | B5: templates on (θ − rest_ref) / rom_ref, 60 samples; both mean and DBA kept, choice left to P2 |
 | 2026-11-18 | B5 committed and pushed (`14fb690`, tracking `e16dacc`) |
 | 2026-11-18 | B6: range = excursion from rest; personal range = rom / rom_ref − 1; SPARC on whole rep; duration kept absolute |
+| 2026-11-19 | PR #1 (B1–B6) approved by A and merged |
+| 2026-11-20 | PR #2 (C1–C2) approved and merged by B without comments; known issues kept locally |
+| 2026-11-20 | B7: one windowed max/min helper; lean taken as absolute until A confirms its sign |
+| 2026-11-21 | B9: labels on the capture clock from frames.parquet; video fps fallback flagged |

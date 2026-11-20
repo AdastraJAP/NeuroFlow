@@ -1,6 +1,6 @@
 # Member B: Task Status
 
-Last updated: 2026-11-18 · Branch: `Melchior-branch` · B1–B5 committed; B6 not yet committed
+Last updated: 2026-11-21 · Branch: `Melchior-branch` · B1–B6 merged (PR #1); B7, B9 committed, in review (PR #3)
 
 Legend: ✅ done · 🟡 in progress / blocked on a decision · ⬜ not started
 
@@ -9,8 +9,8 @@ Legend: ✅ done · 🟡 in progress / blocked on a decision · ⬜ not started
 | Item | Status | Note |
 | --- | --- | --- |
 | Read project docs (plan, research brief, research basis) | ✅ | |
-| Branch `b1-mock-frames` created and pushed | ✅ | Push over SSH (see tasks.md) |
-| Python environment `.venv` | ✅ | MediaPipe needs `libgles2` on WSL (not needed for B1–B8) |
+| Branch `Melchior-branch` (one branch for all B work) | ✅ | Push over SSH (see tasks.md) |
+| Python environment `.venv` | ✅ | MediaPipe needs `libgles2` on WSL; B9's window needs `libsm6 libice6` |
 | Review of Member A's prototype code | ✅ | Kept local, not posted |
 
 ## B tasks
@@ -19,13 +19,13 @@ Legend: ✅ done · 🟡 in progress / blocked on a decision · ⬜ not started
 | --- | --- | --- | --- | --- |
 | B1 | Mock `frames.parquet` generator (normal, slow, capped, leaning) | S | ✅ | Truth files use the 5 % boundary definition. B2 validated against all four. Committed `e716e9e` |
 | B2 | Segmenter v0: fixed-threshold hysteresis state machine | M | ✅ | 10/10 reps and start/end within ±67 ms on all four mocks; `pytest tests/` passes. Known limit: across 50 random mocks, slow passes 49/50 and capped 46/50 (known limit). Committed `e716e9e` |
-| B3 | Segmenter v1: ROM-normalised thresholds (S3 core) | M | ✅ | Finds 10/10 reps on new `low_rom` mock where v0 finds 0; all 15 tests pass. Known limit: low_rom boundary timing misses ±67 ms. Not yet committed |
+| B3 | Segmenter v1: ROM-normalised thresholds (S3 core) | M | ✅ | Finds 10/10 reps on new `low_rom` mock where v0 finds 0; all 15 tests pass. Known limit: low_rom boundary timing misses ±67 ms. Committed |
 | B4 | DTW with Sakoe-Chiba band | M | ✅ | Matches `dtaidistance` exactly (200 random pairs × 4 bands); band behaves as expected; 7 tests. Committed `2023cad` |
 | B5 | Templates: linear-stretch mean, then DBA | M | ✅ | Mean template recovers the true shape (≈0.4°); DBA beats mean on distance to members everywhere; 13 tests (35 total). Known: DBA fits noise when timing doesn't vary. Committed `14fb690` |
-| B6 | Features: duration, time-to-peak ratio, personal-centred ROM, SPARC | M | ✅ | Each feature validated on its own, then integrated in `rep_features()`; 24 tests (59 total). Known: SPARC reads small movements as less smooth when noise is present. Not yet committed |
-| B7 | Compensation features: max lean, min elbow, max hike | M | ⬜ | |
+| B6 | Features: duration, time-to-peak ratio, personal-centred ROM, SPARC | M | ✅ | Each feature validated on its own, then integrated in `rep_features()`; 24 tests (59 total). Known: SPARC reads small movements as less smooth when noise is present. Committed `7260c6e` |
+| B7 | Compensation features: max lean, min elbow, max hike | M | ✅ | `rep_window_extreme` + 3 columns in `rep_features()`; new `elbow_30` / `hike` mocks; each mock moves only its own feature; 10 tests. Open: lean sign (absolute for now, ask A). Committed `0589f8e` |
 | B8 | S3 study: automatic vs manual segmentation | L | ⬜ | |
-| B9 | Manual labelling helper | S | ⬜ | Must label start/end with the 5 % definition (see tasks.md) |
+| B9 | Manual labelling helper | S | ✅ | `label_tool.py`: labels on the capture clock, `load_labels()` feeds `segment.validate` for B8; 8 tests. GUI not tried yet (WSL needs `libsm6 libice6`). Committed `13df5fe` |
 
 ## Gates involving B
 
