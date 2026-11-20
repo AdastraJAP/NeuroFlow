@@ -119,6 +119,33 @@ def rep_speed(t_ms, theta_s, t_start_ms, t_end_ms):
     return np.abs(np.gradient(theta_u, dt / 1000.0)), 1000.0 / dt
 
 
+# ---- 5. compensation (B7) ----
+
+def rep_window_extreme(t_ms, signal_s, t_start_ms, t_end_ms, how):
+    """
+    Max or min (how = "max" | "min") of a per-frame signal between a rep's boundaries.
+    One helper serves all three compensation features, which are the same
+    windowed reduction of a column A4 already computes per frame:
+        max_trunk_lean_deg  how="max" on trunk_lean_deg
+        min_elbow_deg       how="min" on elbow_deg      (180 = straight arm)
+        max_hike_ratio      how="max" on hike_ratio     (already relative to rest)
+    Pass the signal smoothed (segment.smooth): the max of raw noise is biased upward.
+    NaN frames are skipped; NaN if a boundary is unknown or no valid frame lies inside.
+    The literature flags (lean 5.2 deg, elbow 153.4 deg, hike 0.174) belong to the
+    scorer (C4), not here.
+    """
+    if how not in ("max", "min"):
+        raise ValueError(f"how must be 'max' or 'min', got {how!r}")
+    if np.isnan(t_start_ms) or np.isnan(t_end_ms):
+        return np.nan
+    t_ms = np.asarray(t_ms, dtype=float)
+    vals = np.asarray(signal_s, dtype=float)[(t_ms >= t_start_ms) & (t_ms <= t_end_ms)]
+    vals = vals[~np.isnan(vals)]
+    if len(vals) == 0:
+        return np.nan
+    return float(vals.max() if how == "max" else vals.min())
+
+
 # ---- integration ----
 
 def rep_features(frames, reps, rest_ref, rom_ref):
