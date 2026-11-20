@@ -197,6 +197,61 @@ def test_window_extreme_on_mocks(variant, col, how, expect, normal_expect):
     assert per_rep("normal").mean() == pytest.approx(normal_expect, abs=tol)
 
 
+# ---- 6. compensation integration (B7) ----
+
+COMP = ["max_trunk_lean_deg", "min_elbow_deg", "max_hike_ratio"]
+
+
+def test_rep_features_compensation_on_mocks():
+    """Each compensation mock moves only its own feature (the plan's B7 acceptance check)."""
+    normal, _ = _mock_features("normal")
+    leaning, _ = _mock_features("leaning")
+    elbow, _ = _mock_features("elbow_30")
+    hike, _ = _mock_features("hike")
+    for f in (normal, leaning, elbow, hike):
+        assert not f[COMP].isna().any().any()
+    assert leaning["max_trunk_lean_deg"].mean() == pytest.approx(12.0, abs=1.0)
+    assert normal["max_trunk_lean_deg"].mean() < 2.0
+    assert elbow["min_elbow_deg"].mean() == pytest.approx(145.0, abs=1.5)
+    assert normal["min_elbow_deg"].mean() > 172.0
+    assert hike["max_hike_ratio"].mean() == pytest.approx(0.20, abs=0.02)
+    assert normal["max_hike_ratio"].mean() < 0.03
+    # isolation: a compensation leaves the other two at their normal values
+    for col in ("min_elbow_deg", "max_hike_ratio"):
+        assert leaning[col].mean() == pytest.approx(normal[col].mean(), rel=0.05)
+    assert elbow["max_trunk_lean_deg"].mean() == pytest.approx(normal["max_trunk_lean_deg"].mean())
+    assert hike["min_elbow_deg"].mean() == pytest.approx(normal["min_elbow_deg"].mean())
+
+
+def test_rep_features_lean_is_absolute():
+    frames = pd.read_parquet(os.path.join(FX, "mock_frames_leaning.parquet"))
+    flipped = frames.assign(trunk_lean_deg=-frames["trunk_lean_deg"])
+    rest, rom = CALIB["mock01"]
+    reps = segment_reps(frames, rom, rest)
+    a = rep_features(frames, reps, rest, rom)["max_trunk_lean_deg"]
+    b = rep_features(flipped, reps, rest, rom)["max_trunk_lean_deg"]
+    assert np.allclose(a, b)
+
+
+def test_rep_features_compensation_missing_is_nan():
+    frames = pd.read_parquet(os.path.join(FX, "mock_frames_normal.parquet"))
+    rest, rom = CALIB["mock01"]
+    reps = segment_reps(frames, rom, rest)
+    # column absent (A4 v0) -> NaN
+    out = rep_features(frames.drop(columns=["hike_ratio"]), reps, rest, rom)
+    assert out["max_hike_ratio"].isna().all() and not out["min_elbow_deg"].isna().any()
+    # every elbow frame of rep 0 missing -> NaN for that rep only, not an interpolated value
+    t = frames["t_capture_ms"]
+    r0 = reps.iloc[0]
+    gap = frames.copy()
+    gap.loc[(t >= r0["t_start_ms"]) & (t <= r0["t_end_ms"]), "elbow_deg"] = np.nan
+    out = rep_features(gap, reps, rest, rom)
+    assert np.isnan(out["min_elbow_deg"].iloc[0]) and not out["min_elbow_deg"].iloc[1:].isna().any()
+    # unknown boundary -> NaN
+    unk = pd.DataFrame({"t_start_ms": [np.nan], "t_peak_ms": [1_003_000.0], "t_end_ms": [1_004_000.0]})
+    assert rep_features(frames, unk, rest, rom)[COMP].isna().all().all()
+
+
 # ---- helpers ----
 
 CALIB = calibration_refs()

@@ -12,6 +12,11 @@ before rep_features() combines them into reps.parquet columns.
                         0 = the user's typical range, -0.5 = half of it
     sparc               spectral arc length of the angular-speed profile
                         (Balasubramanian et al. 2015); closer to 0 = smoother
+  B7 compensation (max/min of A4's per-frame signal between the boundaries):
+    max_trunk_lean_deg  max |trunk_lean_deg| (absolute: open question for A,
+                        depends on how A4 signs lean)
+    min_elbow_deg       min elbow_deg; 180 = straight arm, lower = more bent
+    max_hike_ratio      max hike_ratio (exploratory; weak evidence)
 
 Choices made here (not literature values): ROM as excursion from rest, the ratio
 form of the personal centring, SPARC on the whole rep (raise + lower) using the
@@ -146,6 +151,14 @@ def rep_window_extreme(t_ms, signal_s, t_start_ms, t_end_ms, how):
     return float(vals.max() if how == "max" else vals.min())
 
 
+# Per-frame column -> (reps column, reduction, transform before smoothing).
+COMPENSATION = [
+    ("trunk_lean_deg", "max_trunk_lean_deg", "max", np.abs),
+    ("elbow_deg", "min_elbow_deg", "min", None),
+    ("hike_ratio", "max_hike_ratio", "max", None),
+]
+
+
 # ---- integration ----
 
 def rep_features(frames, reps, rest_ref, rom_ref):
@@ -171,6 +184,17 @@ def rep_features(frames, reps, rest_ref, rom_ref):
     out["rom_peak_deg"] = roms
     out["rom_rel_personal"] = rels
     out["sparc"] = sparcs
+
+    # B7: a column missing from frames (e.g. A4 v0 writes theta_HT only) -> NaN, never 0.
+    for col, name, how, transform in COMPENSATION:
+        if col not in frames.columns:
+            out[name] = np.nan
+            continue
+        sig = frames[col].to_numpy(dtype=float)
+        sig_s = smooth(t, transform(sig) if transform else sig)
+        sig_s[np.isnan(sig)] = np.nan   # smooth() fills gaps; don't invent values A4 didn't have
+        out[name] = [rep_window_extreme(t, sig_s, r["t_start_ms"], r["t_end_ms"], how)
+                     for _, r in out.iterrows()]
     return out
 
 
@@ -178,10 +202,10 @@ def main():
     from neuroflow.segmentation.segment import calibration_refs, segment_reps
     fx = os.path.join(os.path.dirname(__file__), "..", "..", "fixtures")
     calib = calibration_refs()
-    print("B6 features on the committed mocks (B3 segmenter, calibration from separate blocks)\n")
+    print("B6/B7 features on the committed mocks (B3 segmenter, calibration from separate blocks)\n")
     print(f"{'variant':<8} {'dur s':>6} {'(true)':>7} {'ttp':>6} {'rom deg':>8} {'(true)':>7} "
-          f"{'rom_rel':>8} {'sparc':>7}")
-    for v in ["normal", "slow", "capped", "leaning", "low_rom"]:
+          f"{'rom_rel':>8} {'sparc':>7} {'lean':>6} {'elbow':>6} {'hike':>6}")
+    for v in ["normal", "slow", "capped", "leaning", "low_rom", "elbow_30", "hike"]:
         f = pd.read_parquet(os.path.join(fx, f"mock_frames_{v}.parquet"))
         tr = pd.read_csv(os.path.join(fx, f"mock_frames_{v}_truth.csv"))
         rest, rom = calib[f["subject_id"].iloc[0]]
@@ -190,7 +214,9 @@ def main():
         true_rom = (tr["peak_deg"] - tr["rest_deg"]).mean()
         print(f"{v:<8} {feats['duration_s'].mean():>6.2f} {true_dur:>7.2f} "
               f"{feats['time_to_peak_ratio'].mean():>6.3f} {feats['rom_peak_deg'].mean():>8.1f} "
-              f"{true_rom:>7.1f} {feats['rom_rel_personal'].mean():>+8.2f} {feats['sparc'].mean():>7.3f}")
+              f"{true_rom:>7.1f} {feats['rom_rel_personal'].mean():>+8.2f} {feats['sparc'].mean():>7.3f} "
+              f"{feats['max_trunk_lean_deg'].mean():>6.1f} {feats['min_elbow_deg'].mean():>6.1f} "
+              f"{feats['max_hike_ratio'].mean():>6.3f}")
 
 
 if __name__ == "__main__":
