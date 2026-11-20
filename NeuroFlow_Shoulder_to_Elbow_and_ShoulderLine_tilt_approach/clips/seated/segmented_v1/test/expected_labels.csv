@@ -1,0 +1,14 @@
+clip,expected_label
+T_01,complete
+T_02,complete
+T_03,complete
+T_04,complete
+T_05,incomplete
+T_06,incomplete
+T_07,incomplete
+T_08,uncertain
+T_09,incomplete
+T_10,uncertain
+T_11,uncertain
+T_12,uncertain
+T_13,uncertain

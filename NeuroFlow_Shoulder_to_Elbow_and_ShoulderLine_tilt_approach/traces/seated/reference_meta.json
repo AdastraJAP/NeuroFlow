@@ -1,0 +1,10 @@
+{
+  "version": "hip_free_2d_v3_solo_positions",
+  "arm": "right",
+  "position": "seated",
+  "reference_clip": "clips/seated/reference/ref_01.avi",
+  "angle_definition": "shoulder_to_elbow_vs_downward_image_vertical",
+  "coordinate_representation": "image_landmarks_converted_to_pixels",
+  "target_deg": 90.0,
+  "timestamp_source": "recorded_monotonic"
+}

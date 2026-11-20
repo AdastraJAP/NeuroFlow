@@ -1,0 +1,18 @@
+time,max_angle_deg,dtw_score,usable_ratio,system_result
+21:59:37,106.3,1.97,1.00,Target reached
+22:00:08,103.3,1.04,1.00,Target reached
+22:00:46,62.9,7.36,1.00,Arm elevation below target
+22:01:08,73.1,5.24,1.00,Arm elevation below target
+22:03:47,88.4,1.58,1.00,Target reached
+22:07:32,101.1,1.04,1.00,Target reached
+22:07:41,108.1,1.16,1.00,Target reached
+22:07:50,67.5,7.72,1.00,Arm elevation below target
+22:07:58,80.9,4.45,1.00,Movement differs from the reference
+22:08:15,93.6,1.52,1.00,Target reached
+22:08:50,23.0,11.31,0.82,Arm elevation below target
+22:25:04,115.5,2.90,1.00,Movement differs from the reference
+13:16:08,105.4,2.95,1.00,Movement differs from the reference
+13:16:32,110.2,2.52,1.00,Target reached
+13:16:41,56.0,16.55,1.00,Arm elevation below target
+13:17:39,56.3,13.08,1.00,Arm elevation below target
+13:17:54,99.9,2.73,1.00,Target reached

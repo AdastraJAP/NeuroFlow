@@ -1,0 +1,21 @@
+{
+  "clip": "T_09",
+  "category": "test",
+  "position": "seated",
+  "version": "hip_free_2d_v3_solo_positions",
+  "arm": "right",
+  "reference_clip": "clips/seated/reference/ref_01.avi",
+  "angle_definition": "shoulder_to_elbow_vs_downward_image_vertical",
+  "resolution": [
+    1280,
+    720
+  ],
+  "video_nominal_fps": 30.0,
+  "recording_countdown_s": 5,
+  "recording_duration_requested_s": 10,
+  "actual_duration_s": 9.999,
+  "actual_fps_approx": 30.003000300030003,
+  "timestamp_source": "monotonic capture clock",
+  "record_started_at_local": "2026-11-18T02:36:56",
+  "camera_setup": "fixed frontal view, camera at shoulder/chest height, marked position, full arm visible"
+}

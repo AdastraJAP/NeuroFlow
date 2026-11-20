@@ -1,0 +1,13 @@
+{
+  "reference_clip": "clips/seated/reference/ref_01.avi",
+  "video_sha256": "bb412a5820eda5deb76d6f375930307971cf2c572e8983f1d9ae0a2c7556fdee",
+  "timestamps_sha256": "add68c14e3a6f33262a42a07667addf754d76abb9405e1be1e64b7f627006fca",
+  "version": "hip_free_2d_v4_segmented",
+  "position": "seated",
+  "arm": "right",
+  "min_visibility": 0.5,
+  "rep_timeout_s": 25,
+  "movement_target_deg": 90.0,
+  "target_tolerance_deg": 10.0,
+  "measurement_source": "video_reprocessed"
+}

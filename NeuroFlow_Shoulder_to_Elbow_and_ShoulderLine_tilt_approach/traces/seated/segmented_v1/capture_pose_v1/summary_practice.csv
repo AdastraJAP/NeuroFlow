@@ -1,0 +1,17 @@
+clip,expected_label,measurement_source,capture_outcome,repetition_outcome,start_ms,end_ms,max_arm_elevation_deg,dtw_score,rest_baseline_deg,termination_reason,usable_ratio,max_bad_run,peak_tilt_change_deg,system_result
+complete_01,,unavailable,complete,unable_to_judge,,,,,,legacy_pose_unavailable,,,,Unable to judge - exact capture measurements unavailable or inconsistent
+complete_02,,unavailable,complete,unable_to_judge,,,,,,legacy_pose_unavailable,,,,Unable to judge - exact capture measurements unavailable or inconsistent
+complete_03,,unavailable,complete,unable_to_judge,,,,,,legacy_pose_unavailable,,,,Unable to judge - exact capture measurements unavailable or inconsistent
+complete_04,,unavailable,complete,unable_to_judge,,,,,,legacy_pose_unavailable,,,,Unable to judge - exact capture measurements unavailable or inconsistent
+complete_05,,unavailable,complete,unable_to_judge,,,,,,legacy_pose_unavailable,,,,Unable to judge - exact capture measurements unavailable or inconsistent
+complete_06,,unavailable,complete,unable_to_judge,,,,,,legacy_pose_unavailable,,,,Unable to judge - exact capture measurements unavailable or inconsistent
+complete_07,,live_capture,complete,complete,1992,7698,91.62225155790654,1.0333461885360193,12.086720231366165,confirmed_return,1.0,0,12.920502790408364,Angle target reached (DTW not calibrated) | shoulder-line tilt observed (exploratory)
+complete_08,,live_capture,complete,complete,1490,12571,83.66639363673401,1.4774053664402285,10.767527028337051,confirmed_return,1.0,0,12.059052825744956,Angle target reached (DTW not calibrated) | shoulder-line tilt observed (exploratory)
+complete_09,,live_capture,complete,complete,1478,5451,96.46909039977932,1.2071793370594184,10.098777125782796,confirmed_return,1.0,0,13.215151109866355,Angle target reached (DTW not calibrated) | shoulder-line tilt observed (exploratory)
+incomplete_01,,unavailable,complete,unable_to_judge,,,,,,legacy_pose_unavailable,,,,Unable to judge - exact capture measurements unavailable or inconsistent
+incomplete_02,,unavailable,complete,unable_to_judge,,,,,,legacy_pose_unavailable,,,,Unable to judge - exact capture measurements unavailable or inconsistent
+incomplete_03,,unavailable,complete,unable_to_judge,,,,,,legacy_pose_unavailable,,,,Unable to judge - exact capture measurements unavailable or inconsistent
+incomplete_04,,unavailable,complete,unable_to_judge,,,,,,legacy_pose_unavailable,,,,Unable to judge - exact capture measurements unavailable or inconsistent
+incomplete_05,,live_capture,complete,complete,1618,4530,50.92703815825019,9.581233020149071,9.651056987607824,confirmed_return,1.0,0,6.129297505728857,Arm elevation below target
+incomplete_06,,live_capture,complete,complete,1798,6262,53.44489055557877,8.266817465486382,11.763163398391328,confirmed_return,1.0,0,3.0812389689528885,Arm elevation below target
+incomplete_07,,live_capture,complete,complete,1716,7026,74.68040596820819,2.971240683251619,9.988213799853218,confirmed_return,1.0,0,6.663787164471685,Arm elevation below target
