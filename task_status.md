@@ -32,7 +32,7 @@ Legend: ✅ done · 🟡 in progress / blocked on a decision · ⬜ not started
 | Item | Status | Note |
 | --- | --- | --- |
 | Configurable angle input (`theta_ht_deg` / `theta_v_deg`), issue #4 | ✅ | `angle_col` on segmenter, calibration, features, templates, label tool; recorded in reps; thresholds hold on A's 6 V4 practice clips (1 rep found in each, rest 11.6°, rom 79.8°). 7 tests (112 total) |
-| Shoulder-line tilt feature (`max_shoulder_tilt_deg`, rest-corrected) | 🟡 | Waiting on 7willA's OK for the new column |
+| Shoulder-line tilt feature (`max_shoulder_tilt_deg`, rest-corrected) | 🟡 | Waiting on 7willA's OK in issue #6 (issue #4 closed) |
 | Reps columns `schema_version`, `block_id`, `side` (from PR #2) | ✅ | Same names and order as 7willA's contract (tested against `make_mock_reps.REP_COLUMNS`); `angle_col` is the only extra |
 | Per-fold DTW template (with C, before G2) | ⬜ | |
 
