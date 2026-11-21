@@ -18,7 +18,7 @@ so don't compare them with segmenter output.
 
 Run:
     python -m neuroflow.segmentation.label_tool CLIP [--frames frames.parquet]
-           [--out labels.csv] [--labeler NAME]
+           [--out labels.csv] [--labeler NAME] [--angle theta_v_deg]
     python -m neuroflow.segmentation.label_tool        (no clip: logic self-test)
 
 Keys:  a / d  back / forward 1 frame     j / l  back / forward 10 frames
@@ -151,7 +151,7 @@ def _draw_strip(width, t, labels, cur, trace=None):
     return strip
 
 
-def run_gui(clip, out, frames_path=None, labeler=""):
+def run_gui(clip, out, frames_path=None, labeler="", angle_col="theta_ht_deg"):
     import cv2
     cap = cv2.VideoCapture(clip)
     video = []
@@ -168,8 +168,8 @@ def run_gui(clip, out, frames_path=None, labeler=""):
     frames = pd.read_parquet(frames_path) if frames_path else None
     t, source = frame_times(len(video), frames, fps)
     trace = None
-    if frames is not None and "theta_ht_deg" in frames.columns:
-        trace = frames.set_index("frame_idx")["theta_ht_deg"].reindex(np.arange(len(video))).to_numpy()
+    if frames is not None and angle_col in frames.columns:
+        trace = frames.set_index("frame_idx")[angle_col].reindex(np.arange(len(video))).to_numpy()
     meta = {k: (str(frames[k].iloc[0]) if frames is not None and k in frames.columns else "")
             for k in ("subject_id", "session_id", "block_id")}
     if source == "video_fps":
@@ -237,9 +237,10 @@ def main():
     p.add_argument("--frames", help="the clip's frames.parquet (gives capture-clock times)")
     p.add_argument("--out", help="labels CSV (default: <clip>_labels.csv)")
     p.add_argument("--labeler", default="")
+    p.add_argument("--angle", default="theta_ht_deg", help="angle shown on the timeline (theta_v_deg for V4 clips)")
     a = p.parse_args()
     if a.clip:
-        run_gui(a.clip, a.out or os.path.splitext(a.clip)[0] + "_labels.csv", a.frames, a.labeler)
+        run_gui(a.clip, a.out or os.path.splitext(a.clip)[0] + "_labels.csv", a.frames, a.labeler, a.angle)
         return
 
     # No clip: check the bookkeeping on a mock's truth times.

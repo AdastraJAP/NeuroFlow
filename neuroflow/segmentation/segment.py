@@ -65,6 +65,39 @@ MIN_DUR_S = 0.4         # and last at least 0.4 s between its boundaries
 
 REST, RISING, PEAK, RETURNING = "REST", "RISING", "PEAK", "RETURNING"
 
+# Which elevation angle to segment on (agreed with A in issue #4, 2026-11-21):
+#   theta_ht_deg  arm vs trunk (needs hip landmarks); the default, used by the mocks
+#   theta_v_deg   arm vs image vertical (hip-free; A's V4 seated clips). Trunk lean
+#                 adds to it, so it reads higher when the user leans.
+ANGLE_COL = "theta_ht_deg"
+ANGLE_COLS = ("theta_ht_deg", "theta_v_deg")
+
+
+def angle_signal(frames, angle_col=ANGLE_COL):
+    """(frames sorted by time, t_ms, raw angle) for the chosen angle column.
+    Fails loudly if the column is unknown, missing or has no values, instead of
+    letting the segmenter quietly find 0 reps."""
+    if angle_col not in ANGLE_COLS:
+        raise ValueError(f"angle_col must be one of {ANGLE_COLS}, got {angle_col!r}")
+    if angle_col not in frames.columns or frames[angle_col].isna().all():
+        raise ValueError(f"{angle_col} has no values in these frames; "
+                         f"try another angle_col (one of {ANGLE_COLS})")
+    frames = frames.sort_values("t_capture_ms")
+    return frames, frames["t_capture_ms"].to_numpy(dtype=float), frames[angle_col].to_numpy(dtype=float)
+
+
+def reps_angle_col(reps, angle_col=None):
+    """Angle column for downstream steps: the one the reps were segmented on.
+    Passing a different one raises, so two angle definitions are never mixed."""
+    recorded = reps["angle_col"].dropna().unique() if "angle_col" in reps.columns else []
+    if len(recorded) > 1:
+        raise ValueError(f"reps mix angle columns {list(recorded)}")
+    if len(recorded) == 1:
+        if angle_col is not None and angle_col != recorded[0]:
+            raise ValueError(f"reps were segmented on {recorded[0]}, not {angle_col}")
+        return recorded[0]
+    return angle_col or ANGLE_COL
+
 
 def smooth(t_ms, x, window_s=SMOOTH_WINDOW_S, order=SMOOTH_ORDER):
     """Zero-phase Savitzky-Golay smoothing. Window is set in seconds from real timestamps.
@@ -168,10 +201,10 @@ def boundaries(theta_s, t_ms, reps, method="pct_range", frac=BOUNDARY_FRAC, t_lo
 
 
 REP_COLUMNS = ["rep_id", "subject_id", "session_id", "condition", "level", "seg_method",
-               "t_start_ms", "t_peak_ms", "t_end_ms", "duration_s"]
+               "angle_col", "t_start_ms", "t_peak_ms", "t_end_ms", "duration_s"]
 
 
-def _rep_table(frames, reps, seg_method):
+def _rep_table(frames, reps, seg_method, angle_col=ANGLE_COL):
     """Build the reps.parquet timing columns from (t_start, t_peak, t_end) tuples."""
     first = frames.iloc[0]
     rows = []
@@ -183,6 +216,7 @@ def _rep_table(frames, reps, seg_method):
             "condition": first["condition"],
             "level": first["level"],
             "seg_method": seg_method,
+            "angle_col": angle_col,
             "t_start_ms": t_s,
             "t_peak_ms": t_p,
             "t_end_ms": t_e,
@@ -191,26 +225,25 @@ def _rep_table(frames, reps, seg_method):
     return pd.DataFrame(rows, columns=REP_COLUMNS)
 
 
-def _run(frames, t_high, t_low, method):
+def _run(frames, t_high, t_low, method, angle_col=ANGLE_COL):
     """Smooth, detect and place boundaries. Returns (reps, peak angles)."""
-    frames = frames.sort_values("t_capture_ms")
-    t = frames["t_capture_ms"].to_numpy(dtype=float)
-    theta_s = smooth(t, frames["theta_ht_deg"].to_numpy())
+    frames, t, theta = angle_signal(frames, angle_col)
+    theta_s = smooth(t, theta)
     det = detect(theta_s, t_high, t_low)
     reps = boundaries(theta_s, t, det, method, t_low=t_low)
     return frames, reps, [float(theta_s[p]) for _, p, _ in det]
 
 
-def segment_fixed(frames, method="pct_range", t_high=T_HIGH, t_low=T_LOW):
+def segment_fixed(frames, method="pct_range", t_high=T_HIGH, t_low=T_LOW, angle_col=ANGLE_COL):
     """
     B2: segment one block of frames.parquet into reps with fixed thresholds (deg).
     Returns a DataFrame with the reps.parquet timing columns.
     """
-    frames, reps, _ = _run(frames, t_high, t_low, method)
-    return _rep_table(frames, reps, f"fsm_fixed_{method}")
+    frames, reps, _ = _run(frames, t_high, t_low, method, angle_col)
+    return _rep_table(frames, reps, f"fsm_fixed_{method}", angle_col)
 
 
-def calibrate(frames):
+def calibrate(frames, angle_col=ANGLE_COL):
     """
     Estimate (rest_ref, rom_ref) in degrees from a calibration block (~10 normal reps).
     Self-scaling, so it also works for a user with a small range:
@@ -219,8 +252,8 @@ def calibrate(frames):
       2. detect reps with thresholds at 50% / 40% of that rough range;
       3. rom_ref = median rep peak - rest.
     """
-    t = frames.sort_values("t_capture_ms")["t_capture_ms"].to_numpy(dtype=float)
-    theta_s = smooth(t, frames.sort_values("t_capture_ms")["theta_ht_deg"].to_numpy())
+    _, t, theta = angle_signal(frames, angle_col)
+    theta_s = smooth(t, theta)
     rest = float(np.percentile(theta_s, 10))
     rough = float(np.percentile(theta_s, 98)) - rest
     det = detect(theta_s, rest + 0.5 * rough, rest + 0.4 * rough)
@@ -230,17 +263,18 @@ def calibrate(frames):
     return rest, rom
 
 
-def segment_reps(frames, rom_ref, rest_ref=None, method="pct_range"):
+def segment_reps(frames, rom_ref, rest_ref=None, method="pct_range", angle_col=ANGLE_COL):
     """
     B3: segment one block with thresholds scaled to the user's calibrated range.
-    rom_ref, rest_ref come from calibrate() on a separate calibration block; if
-    rest_ref is None it is estimated from this block (10th percentile).
+    rom_ref, rest_ref come from calibrate() on a separate calibration block, on the
+    same angle_col; if rest_ref is None it is estimated from this block (10th percentile).
     """
     if rest_ref is None:
-        rest_ref = float(np.percentile(frames["theta_ht_deg"].dropna(), 10))
+        _, _, theta = angle_signal(frames, angle_col)
+        rest_ref = float(np.nanpercentile(theta, 10))
     t_high = rest_ref + START_FRAC * rom_ref
     t_low = rest_ref + END_FRAC * rom_ref
-    frames, reps, peaks = _run(frames, t_high, t_low, method)
+    frames, reps, peaks = _run(frames, t_high, t_low, method, angle_col)
 
     keep = []
     for (t_s, t_p, t_e), pk in zip(reps, peaks):
@@ -249,7 +283,7 @@ def segment_reps(frames, rom_ref, rest_ref=None, method="pct_range"):
         if not np.isnan(t_s) and not np.isnan(t_e) and (t_e - t_s) / 1000.0 < MIN_DUR_S:
             continue                                    # too short to be a rep
         keep.append((t_s, t_p, t_e))
-    return _rep_table(frames, keep, f"fsm_rom_{method}")
+    return _rep_table(frames, keep, f"fsm_rom_{method}", angle_col)
 
 
 def compare_to_truth(reps, truth):

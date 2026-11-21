@@ -37,7 +37,7 @@ import os
 import numpy as np
 import pandas as pd
 
-from neuroflow.segmentation.segment import smooth
+from neuroflow.segmentation.segment import angle_signal, reps_angle_col, smooth
 
 SPARC_PADLEVEL = 4
 SPARC_FC_HZ = 10.0
@@ -161,15 +161,16 @@ COMPENSATION = [
 
 # ---- integration ----
 
-def rep_features(frames, reps, rest_ref, rom_ref):
+def rep_features(frames, reps, rest_ref, rom_ref, angle_col=None):
     """
     Add the B6 feature columns to a reps table (from segment_reps / segment_fixed).
     rest_ref, rom_ref: the user's calibration (segment.calibrate on their own
     calibration block, never the block being scored).
+    angle_col: defaults to the angle the reps were segmented on (their angle_col
+    column); passing a different one raises.
     """
-    frames = frames.sort_values("t_capture_ms")
-    t = frames["t_capture_ms"].to_numpy(dtype=float)
-    theta_s = smooth(t, frames["theta_ht_deg"].to_numpy())
+    frames, t, theta = angle_signal(frames, reps_angle_col(reps, angle_col))
+    theta_s = smooth(t, theta)
 
     out = reps.copy()
     out["duration_s"] = rep_duration_s(out["t_start_ms"], out["t_end_ms"])
