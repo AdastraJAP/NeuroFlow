@@ -1,4 +1,4 @@
-"""Windows-friendly Neuro-Flow menu; independent seated/standing experiments."""
+"""Windows-friendly Neuro-Flow menu; independent position and arm experiments."""
 import csv
 import json
 import os
@@ -58,10 +58,12 @@ def main():
         print('13  Shoulder visibility test')
         print('14  SWITCH POSITION: seated / standing')
         print('15  CHANGE countdown and movement timeout')
+        print('16  SWITCH ANATOMICAL ARM: right / left')
+        print('17  Record DIAGNOSTIC repetition (not practice or held-out)')
         print(' 0  Exit')
         print('-' * 68)
         print()
-        choice = input('Select an option (0-15): ').strip()
+        choice = input('Select an option (0-17): ').strip()
         if choice == '0':
             return
         if choice == '1':
@@ -155,8 +157,16 @@ def main():
                 print('Timing saved for both positions.')
             except ValueError as exc:
                 print('Invalid timing:', exc)
+        elif choice == '16':
+            other = 'left' if s['arm'] == 'right' else 'right'
+            selected = input(f'Switch anatomical arm from {s["arm"]} to {other}? [Y/n]: ').strip().lower()
+            if selected in ('', 'y', 'yes'):
+                active = nf.set_arm(other)
+                print(f'Now using {other.upper()} arm for {active["position"]}. Its reference and DTW calibration are separate.')
+        elif choice == '17':
+            run('step4_record.py', 'diagnostic', next_name(s, 'diagnostic', 'D'))
         else:
-            print('Please choose 0-15.')
+            print('Please choose 0-17.')
 
 
 if __name__ == '__main__':

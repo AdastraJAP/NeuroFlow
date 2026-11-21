@@ -20,7 +20,8 @@ def measure_frame(index, timestamp, landmarks, settings, width, height):
     visibility = settings['min_visibility']
     angle, usable = nf.shoulder_angle(landmarks, settings['arm'], width, height, visibility)
     return {
-        'frame': index, 'timestamp_ms': timestamp, 'pose_detected': int(landmarks is not None),
+        'frame': index, 'timestamp_ms': timestamp, 'arm': settings['arm'],
+        'pose_detected': int(landmarks is not None),
         'arm_elevation_deg': angle if usable else None,
         'shoulder_tilt_deg': nf.shoulder_tilt(landmarks, width, height, visibility),
         'usable': int(usable),
@@ -54,6 +55,8 @@ def load_live_pose(path, settings, metadata):
         raise ValueError(f'{path.name}: exact live pose was not saved by this recorder')
     if metadata.get('min_visibility') != settings['min_visibility']:
         raise ValueError(f'{path.name}: recorded visibility setting differs from the current setup')
+    if metadata.get('arm') is not None and metadata['arm'] != settings['arm']:
+        raise ValueError(f'{path.name}: recorded arm differs from the current setup')
     with live_pose_path(path).open(encoding='utf-8') as source:
         rows = [json.loads(line) for line in source]
     times = nf.clip_timestamps(path, None)
@@ -64,6 +67,7 @@ def load_live_pose(path, settings, metadata):
     for index, row in enumerate(rows):
         angle = row['arm_elevation_deg']
         if (row['frame'] != index or type(row['timestamp_ms']) is not int or row['usable'] not in (0, 1)
+                or (row.get('arm') is not None and row['arm'] != settings['arm'])
                 or bool(row['usable']) != (angle is not None)
                 or (angle is not None and not math.isfinite(angle))
                 or 'landmarks' not in row):

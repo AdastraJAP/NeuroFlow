@@ -32,8 +32,8 @@ JOINTS = {
              "elbow": PoseLandmark.LEFT_ELBOW.value, "wrist": PoseLandmark.LEFT_WRIST.value},
 }
 
-# Keep both positions isolated: config.py exposes only the ACTIVE condition.
-from config import load_settings, save_settings, set_position, set_recording_timing, mode_dir
+# config.py exposes only the active position and anatomical-arm condition.
+from config import load_settings, save_settings, set_position, set_arm, set_recording_timing, mode_dir
 
 
 def make_landmarker(running_mode=vision.RunningMode.VIDEO):
