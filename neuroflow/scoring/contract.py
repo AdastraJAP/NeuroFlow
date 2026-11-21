@@ -16,6 +16,16 @@ SCORE_COLUMNS = [
     "feedback_code",
 ]
 
+# Keys allowed in the scores.parquet "subscores" JSON string (None when abstained).
+# "d" = the scorer's raw distance (C3), kept because score_0_100 floors at 0.
+# Adding a key is not a column change, so SCHEMA_VERSION stays 1, but list it here.
+SUBSCORE_KEYS = ("d", "rom", "tempo", "shape", "smooth", "trunk", "elbow", "hike")
+
+# Values allowed in the "feedback_code" column (None = no feedback). Not "d" (it is
+# a distance, not a sub-score) and not "hike" (exploratory: F1 ~ 0.55, too many
+# false messages to show to a patient).
+FEEDBACK_CODES = ("rom", "tempo", "shape", "smooth", "trunk", "elbow")
+
 FOLD_COLUMNS = ["subject_id", "fold_id", "split"]
 
 SPLITS = ("train", "val", "locked_test")
