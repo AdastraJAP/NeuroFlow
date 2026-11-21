@@ -75,14 +75,42 @@ def test_load_rejects_bad_order_and_overlap(tmp_path):
 
 def test_frame_times_from_parquet_and_fps():
     frames = pd.read_parquet(os.path.join(FX, "mock_frames_normal.parquet"))
-    t, src = frame_times(5, frames)
-    assert src == "t_capture_ms" and np.allclose(t, frames["t_capture_ms"].iloc[:5])
+    t, src = frame_times(len(frames), frames)
+    assert src == "t_capture_ms" and np.allclose(t, frames.sort_values("frame_idx")["t_capture_ms"])
     t, src = frame_times(4, fps=25.0)
     assert src == "video_fps" and np.allclose(t, [0, 40, 80, 120])
-    t, _ = frame_times(len(frames) + 2, frames)          # video longer than the table -> NaN, not 0
-    assert np.isnan(t[-2:]).all()
     with pytest.raises(ValueError):
         frame_times(5)
+
+
+def test_frame_times_needs_a_complete_mapping():
+    """Adastra's PR #3 review: every decoded video frame needs exactly one finite time."""
+    frames = pd.read_parquet(os.path.join(FX, "mock_frames_normal.parquet"))
+    n = len(frames)
+    with pytest.raises(ValueError, match="exactly 0"):
+        frame_times(n + 2, frames)                         # video longer than its frame table
+    with pytest.raises(ValueError, match="exactly 0"):
+        frame_times(n - 2, frames)                         # table longer than the video
+    with pytest.raises(ValueError, match="exactly 0"):
+        frame_times(n, frames.assign(frame_idx=frames["frame_idx"] + 1))   # not zero-based
+    with pytest.raises(ValueError, match="duplicate"):
+        frame_times(n, frames.assign(frame_idx=np.r_[0, frames["frame_idx"].to_numpy()[:-1]]))
+    gap = frames.copy()
+    gap.loc[gap.index[10], "t_capture_ms"] = np.nan
+    with pytest.raises(ValueError, match="non-finite"):
+        frame_times(n, gap)
+    back = frames.copy()
+    back.loc[back["frame_idx"] == 10, "t_capture_ms"] = 0.0
+    with pytest.raises(ValueError, match="strictly increasing"):
+        frame_times(n, back)
+
+
+def test_mark_rejects_non_finite_times():
+    lab = Labels()
+    for bad in (np.nan, np.inf):
+        with pytest.raises(ValueError, match="not a finite"):
+            lab.mark(bad)
+    assert lab.marks == []
 
 
 def test_labels_feed_b8_comparison(tmp_path):
@@ -110,5 +138,5 @@ def test_select_block():
         select_block(both)
     with pytest.raises(ValueError, match="available"):
         select_block(both, "T_99")
-    t, _ = frame_times(3, select_block(both, "slow"))           # frame_idx restarts per clip
-    assert np.allclose(t, b["t_capture_ms"].iloc[:3])
+    t, _ = frame_times(len(b), select_block(both, "slow"))      # frame_idx restarts per clip
+    assert np.allclose(t, b.sort_values("frame_idx")["t_capture_ms"])

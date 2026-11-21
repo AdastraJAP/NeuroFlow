@@ -24,7 +24,8 @@ Run:
 
 Keys:  a / d  back / forward 1 frame     j / l  back / forward 10 frames
        space  play / pause               m      mark the next point (start -> peak -> end)
-       u      undo the last mark         s      save           q  save and quit
+       u      undo the last mark         s      save
+       q / Esc / Enter, or close the window   save and quit
 Mouse: click the timeline strip at the bottom to jump to that moment.
 """
 
@@ -52,6 +53,8 @@ class Labels:
 
     def mark(self, t_ms):
         """Add the next mark; it must come after the previous one. Returns its kind."""
+        if not np.isfinite(t_ms):
+            raise ValueError(f"{self.next_kind()} time {t_ms} is not a finite number")
         if self.marks and t_ms <= self.marks[-1]:
             raise ValueError(f"{self.next_kind()} at {t_ms:.0f} ms is not after the "
                              f"previous mark at {self.marks[-1]:.0f} ms")
@@ -87,10 +90,21 @@ def frame_times(n_frames, frames=None, fps=None):
     Otherwise fps from the video header: i * 1000 / fps (flagged "video_fps").
     """
     if frames is not None:
-        lookup = frames.set_index("frame_idx")["t_capture_ms"]
-        t = lookup.reindex(np.arange(n_frames)).to_numpy(dtype=float)
-        if np.isnan(t).all():
-            raise ValueError("frames.parquet shares no frame_idx with this video")
+        # Strict 1:1 mapping, so no video frame ever gets a missing or wrong time:
+        # frame_idx must be exactly 0 .. n_frames-1 (unique, no gaps, same count as
+        # the decoded video), and the times finite and strictly increasing.
+        idx = frames["frame_idx"].to_numpy()
+        if not frames["frame_idx"].is_unique:
+            raise ValueError("frames.parquet has duplicate frame_idx values")
+        if len(idx) != n_frames or set(idx.tolist()) != set(range(n_frames)):
+            raise ValueError(f"frames.parquet frame_idx must be exactly 0..{n_frames - 1} "
+                             f"(the decoded video has {n_frames} frames); got {len(idx)} rows, "
+                             f"frame_idx {idx.min()}..{idx.max()}")
+        t = frames.set_index("frame_idx")["t_capture_ms"].sort_index().to_numpy(dtype=float)
+        if not np.isfinite(t).all():
+            raise ValueError("frames.parquet has missing or non-finite t_capture_ms")
+        if not (np.diff(t) > 0).all():
+            raise ValueError("frames.parquet t_capture_ms is not strictly increasing in frame_idx")
         return t, "t_capture_ms"
     if not fps or fps <= 0:
         raise ValueError("no frames.parquet and no usable fps in the video header")
@@ -197,6 +211,7 @@ def run_gui(clip, out, frames_path=None, labeler="", angle_col="theta_ht_deg", b
                     labels.mark(r[c])
         print(f"resumed {len(labels.marks)} marks from {out}")
 
+    QUIT_KEYS = (ord("q"), ord("Q"), 27, 13, 10)  # q, Esc, Enter (CR / LF)
     h, w = video[0].shape[:2]
     state = {"cur": 0, "play": False}
 
@@ -234,10 +249,10 @@ def run_gui(clip, out, frames_path=None, labeler="", angle_col="theta_ht_deg", b
         elif key == ord("u"):
             undone = labels.undo()
             msg = f"undid {undone[0]}" if undone else "nothing to undo"
-        elif key == ord("s"):
+        elif key in (ord("s"), ord("S")):
             save()
             msg = "saved"
-        elif key == ord("q"):
+        elif key in QUIT_KEYS or cv2.getWindowProperty("label", cv2.WND_PROP_VISIBLE) < 1:
             save()
             break
     cv2.destroyAllWindows()
