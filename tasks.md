@@ -346,3 +346,4 @@ So a capped or low-range rep will look less smooth from noise alone. This matter
 | 2026-11-21 | B9: labels on the capture clock from frames.parquet; video fps fallback flagged |
 | 2026-11-21 | Issue #4: agreed with A on a configurable angle (`theta_v_deg` for V4 clips) and a separate rest-corrected shoulder-tilt feature; data shared outside git |
 | 2026-11-21 | `angle_col` added and recorded in reps; thresholds unchanged after checking on A's practice clips |
+| 2026-11-21 | Reps output gains `schema_version`, `block_id`, `side` in 7willA's column order; G1 data received from Adastra on Google Drive |
