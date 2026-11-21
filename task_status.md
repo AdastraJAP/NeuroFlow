@@ -27,9 +27,18 @@ Legend: ✅ done · 🟡 in progress / blocked on a decision · ⬜ not started
 | B8 | S3 study: automatic vs manual segmentation | L | ⬜ | |
 | B9 | Manual labelling helper | S | ✅ | `label_tool.py`: labels on the capture clock, `load_labels()` feeds `segment.validate` for B8; 8 tests. GUI not tried yet (WSL needs `libsm6 libice6`). Committed `13df5fe` |
 
+## Follow-ups from A and C
+
+| Item | Status | Note |
+| --- | --- | --- |
+| Configurable angle input (`theta_ht_deg` / `theta_v_deg`), issue #4 | ✅ | `angle_col` on segmenter, calibration, features, templates, label tool; recorded in reps; thresholds hold on A's 6 V4 practice clips (1 rep found in each, rest 11.6°, rom 79.8°). 7 tests (112 total) |
+| Shoulder-line tilt feature (`max_shoulder_tilt_deg`, rest-corrected) | 🟡 | Waiting on C's OK for the new column |
+| Reps columns `schema_version`, `block_id`, `side` (from PR #2) | ⬜ | |
+| Per-fold DTW template (with C, before G2) | ⬜ | |
+
 ## Gates involving B
 
 | Gate | Status |
 | --- | --- |
-| G1 Signal (A's real frames) | ⬜ waiting on A |
+| G1 Signal (A's real frames) | 🟡 A's draft PR #5; 3 real clips, `theta_v_deg` only; data shared privately |
 | G2 Reps (B's real reps, reviewed by A) | ⬜ |

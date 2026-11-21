@@ -306,6 +306,22 @@ So a capped or low-range rep will look less smooth from noise alone. This matter
 
 **Not yet tried:** the interactive window. On this WSL box OpenCV's Qt window needs `sudo apt install -y libsm6 libice6`. Logic, timing, drawing and the B8 hand-off are tested.
 
+## Angle input: theta_ht_deg or theta_v_deg (issue #4)
+
+**Why:** A's seated V4 clips have no usable hip landmarks, so `theta_ht_deg` (arm vs trunk) is NaN on every frame and only `theta_v_deg` (arm vs image vertical) has values. The unchanged segmenter found 0 reps on them.
+
+**What changed:** `angle_col` parameter (default `theta_ht_deg`, allowed `theta_v_deg`) on `segment_fixed`, `calibrate`, `segment_reps`, `rep_features`, `rep_matrix`, and `--angle` on the label tool.
+- The reps table gets an `angle_col` column (new reps.parquet column, C needs to add it to the contract).
+- `rep_features` / `rep_matrix` read the angle from the reps; passing a different one raises, so two angle definitions can't be mixed.
+- A missing or all-NaN angle column raises a clear error instead of returning 0 reps.
+- Calibration must be done on the same angle.
+
+**Known limit:** trunk lean adds to `theta_v_deg`. On the leaning mock, range reads ~12° higher than with `theta_ht_deg` (tested). Without hips there's nothing to correct it with.
+
+**Threshold check** (`docs/v4_threshold_check.py`, local): A's six V4 **practice** clips (not the held-out T clips), one rep each, 24–29 fps. Calibrating on the three complete ones gives rest 11.6°, range 79.8° (mock: 10°, 79.6°). B2 (30°/20°) and B3 (20 %/15 %) each find exactly 1 rep in all six, including the three short raises (peaks 51–75°). No threshold change needed. Our start is 250–430 ms before A's detector start because A's rule is 15° above rest held for 180 ms, ours is 5 % of range; the two aren't comparable.
+
+**Note:** real fps is 24–29, not 30, so ±67 ms is about 1.7 frames, not 2.
+
 ## Decisions log
 
 | Date | Decision |
@@ -328,3 +344,5 @@ So a capped or low-range rep will look less smooth from noise alone. This matter
 | 2026-11-20 | PR #2 (C1–C2) approved and merged by B without comments; known issues kept locally |
 | 2026-11-20 | B7: one windowed max/min helper; lean taken as absolute until A confirms its sign |
 | 2026-11-21 | B9: labels on the capture clock from frames.parquet; video fps fallback flagged |
+| 2026-11-21 | Issue #4: agreed with A on a configurable angle (`theta_v_deg` for V4 clips) and a separate rest-corrected shoulder-tilt feature; data shared outside git |
+| 2026-11-21 | `angle_col` added and recorded in reps; thresholds unchanged after checking on A's practice clips |
