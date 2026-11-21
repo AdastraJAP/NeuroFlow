@@ -200,8 +200,12 @@ def boundaries(theta_s, t_ms, reps, method="pct_range", frac=BOUNDARY_FRAC, t_lo
     return out
 
 
-REP_COLUMNS = ["rep_id", "subject_id", "session_id", "condition", "level", "seg_method",
-               "angle_col", "t_start_ms", "t_peak_ms", "t_end_ms", "duration_s"]
+REPS_SCHEMA_VERSION = 1
+# Same names and order as 7willA's reps contract (fixtures/make_mock_reps.py), plus
+# angle_col (which elevation angle was segmented; proposed in PR #3).
+REP_COLUMNS = ["schema_version", "rep_id", "subject_id", "session_id", "block_id",
+               "condition", "level", "side", "seg_method", "angle_col",
+               "t_start_ms", "t_peak_ms", "t_end_ms", "duration_s"]
 
 
 def _rep_table(frames, reps, seg_method, angle_col=ANGLE_COL):
@@ -210,11 +214,14 @@ def _rep_table(frames, reps, seg_method, angle_col=ANGLE_COL):
     rows = []
     for n, (t_s, t_p, t_e) in enumerate(reps):
         rows.append({
+            "schema_version": REPS_SCHEMA_VERSION,
             "rep_id": f"{first['subject_id']}_{first['session_id']}_{first['block_id']}_{n:03d}",
             "subject_id": first["subject_id"],
             "session_id": first["session_id"],
+            "block_id": first["block_id"],
             "condition": first["condition"],
             "level": first["level"],
+            "side": first.get("side", np.nan),      # working arm, from frames.parquet
             "seg_method": seg_method,
             "angle_col": angle_col,
             "t_start_ms": t_s,

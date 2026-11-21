@@ -132,3 +132,22 @@ def test_theta_v_reads_trunk_lean_as_extra_range():
     reps_v = segment_reps(frames, rom_v, rest_v, angle_col="theta_v_deg")
     v = rep_features(frames, reps_v, rest_v, rom_v)["rom_peak_deg"].mean()
     assert v - ht == pytest.approx(12.0, abs=1.5)
+
+
+# ---- reps contract: same columns and order as 7willA's mock (PR #2) ----
+
+def test_rep_columns_match_7willA_contract():
+    sys.path.insert(0, FX)
+    from make_mock_reps import REP_COLUMNS as C_COLUMNS
+    from neuroflow.segmentation.segment import REP_COLUMNS
+    ours = [c for c in REP_COLUMNS if c != "angle_col"]      # angle_col: proposed in PR #3
+    assert set(ours) <= set(C_COLUMNS)
+    assert ours == [c for c in C_COLUMNS if c in ours]        # same relative order
+
+
+def test_reps_carry_block_side_and_version():
+    frames, _, rest, rom = _load("normal")
+    reps = segment_reps(frames, rom, rest)
+    assert (reps["schema_version"] == 1).all()
+    assert (reps["block_id"] == "normal").all() and (reps["side"] == "right").all()
+    assert reps["rep_id"].str.startswith("mock01_s1_normal_").all()
