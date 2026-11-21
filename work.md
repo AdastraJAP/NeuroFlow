@@ -78,7 +78,7 @@ Stages talk **only through tables** (`schema_version = 1`). Never rename a colum
 - `dtw_dist` = sqrt of summed squared differences on θ_HT ÷ personal peak (no unit).
 - Rep start/end = where the angle crosses rest + 5 % of the rep's range.
 
-**`scores.parquet` columns (mine):** `schema_version, rep_id, scorer_id, ref_type, mapping, fold_id, score_0_100, percentile, subscores (json: rom, tempo, shape, smooth, trunk, elbow, hike), abstain, abstain_reason, feedback_code`
+**`scores.parquet` columns (mine):** `schema_version, rep_id, scorer_id, ref_type, mapping, fold_id, score_0_100, percentile, subscores (json: d, rom, tempo, shape, smooth, trunk, elbow, hike; `None` when abstained), abstain, abstain_reason, feedback_code`
 
 **`folds.csv` columns (mine):** `subject_id, fold_id, split` (`train` / `val` / `locked_test`; locked test has `fold_id = -1`)
 
@@ -94,7 +94,7 @@ Legend: ✅ done · 🟡 committed, in review (PR open) · ⬜ not started. Size
 | --- | --- | --- | --- | --- |
 | C1 | Mock `reps.parquet` generator + subject-wise `folds.csv` builder (locked test subset) | S | 🟡 in review | Mock with 18 subjects; no subject in two folds |
 | C2 | RehabHub baseline: Z of DTW distance vs normal reps, score = 100 / max(Z, 1) | S | 🟡 in review | Reproduces the saturation: many reps with Z < 1 all get 100 |
-| C3 | Scorer v1: standardise features → Ledoit-Wolf covariance → Mahalanobis distance → pooled ECDF → 0–100 | M | ⬜ | A shifted mock group scores lower than normal; ECDF of training normals ≈ uniform |
+| C3 | Scorer v1: standardise features → Ledoit-Wolf covariance → Mahalanobis distance → pooled ECDF → 0–100 | M | 🟡 written, tests pass, not committed | A shifted mock group scores lower than normal; ECDF of training normals ≈ uniform |
 | C4 | P3 sub-scores: per-feature ECDF for lean, elbow, hike (and rom, tempo, shape, smooth); feedback code from the worst sub-score | M | ⬜ | A lean-heavy mock rep returns feedback code "trunk lean" |
 | C5 | LOSO harness: fit on train subjects, score the held-out subject, AUROC per condition | M | ⬜ | AUROC ≈ 0.5 on shuffled labels; high on a clearly shifted mock |
 | C6 | Statistics: subject-level bootstrap CI, paired score difference, ICC(2,1), SEM, MDC | L | ⬜ | CI on a known synthetic effect covers the truth ≈ 95 % of the time |
@@ -113,6 +113,10 @@ Legend: ✅ done · 🟡 committed, in review (PR open) · ⬜ not started. Size
 | `tests/test_mock_reps.py`, `tests/test_folds.py`, `tests/test_baseline.py` | 28 tests, all pass |
 
 **First result (mock data, LOSO):** 83 % of normal reps and 75 % of slow reps score exactly 100, so the RehabHub score cannot tell slow reps from normal ones. That is the flaw P2 must fix. (Theory: Z < 1 covers ≈ 84 % of a normal distribution.)
+
+**C3 result (mock data, LOSO, session-2 reps):** 0.4 % of normal reps score 100 (RehabHub: 83 %); slow 2x/3x median 0 (RehabHub: 100). Two things to remember:
+- **New floor at 0.** Every rep beyond the most unusual normal training rep scores 0, so band light and medium both get 0. The raw Mahalanobis distance is kept in `subscores` as `d` so C7 can still grade severity.
+- **Normal median is 40.5, not 50.** μ, Σ and the ECDF reference are fitted on the training subjects, so their own normal reps fit the model by construction; a held-out subject moves in their own way. That 50 → 40.5 drop is a small example of the P1 leakage gap.
 
 **Mock blocks:** `normal_calib, normal_test, slow 2x/3x, band light/medium, trunk_lean small/large, elbow_bend 30deg/60deg, hike shrug, rom_cap 60deg/90deg` (7 conditions, 13 blocks). Naming follows B's mock (`condition` + `level`).
 
@@ -210,7 +214,8 @@ Until G2, I build everything on `fixtures/mock_reps.parquet`. Because the schema
 4. **Block list:** 12 or 13 blocks (the report says both). My mock uses 13; it's one constant (`BLOCKS`) to change.
 5. **3D side experiment** (professor): world-landmark angle next to the 2D angle, front vs ~45° view. That's A's area.
 6. **Professor wants** one screenshot with the skeleton overlay (to see where the hip is).
-7. Next steps after Foundations: a small pilot with 3–5 classmates; the squat only after the shoulder workflow is stable.
+7. **Calibration session:** session-1 calibration only, or each session's own `normal_calib`? Own-session is more realistic (camera and day change). It affects `rom_rel_personal` (my mock, `make_mock_reps.py`), `duration_ratio` (my scorer) and `rest_ref`/`rom_ref` on real data (B). It also matters for C6 test-retest. For now everything uses session 1.
+8. Next steps after Foundations: a small pilot with 3–5 classmates; the squat only after the shoulder workflow is stable.
 
 ---
 
