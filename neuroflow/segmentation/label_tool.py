@@ -18,7 +18,8 @@ so don't compare them with segmenter output.
 
 Run:
     python -m neuroflow.segmentation.label_tool CLIP [--frames frames.parquet]
-           [--out labels.csv] [--labeler NAME] [--angle theta_v_deg]
+           [--out labels.csv] [--labeler NAME] [--angle theta_v_deg] [--block T_01]
+    --block picks one clip when frames.parquet holds several (e.g. Adastra's G1 file).
     python -m neuroflow.segmentation.label_tool        (no clip: logic self-test)
 
 Keys:  a / d  back / forward 1 frame     j / l  back / forward 10 frames
@@ -96,6 +97,19 @@ def frame_times(n_frames, frames=None, fps=None):
     return np.arange(n_frames) * 1000.0 / fps, "video_fps"
 
 
+def select_block(frames, block_id=None):
+    """Frames of one clip. A file with several block_ids needs block_id; one with a
+    single block can omit it. Raises with the available ids otherwise."""
+    blocks = sorted(frames["block_id"].astype(str).unique()) if "block_id" in frames.columns else []
+    if block_id is None:
+        if len(blocks) > 1:
+            raise ValueError(f"frames hold several clips {blocks}; pass --block")
+        return frames
+    if block_id not in blocks:
+        raise ValueError(f"block {block_id!r} not in frames; available: {blocks}")
+    return frames[frames["block_id"].astype(str) == block_id]
+
+
 # ---- 3. save / load (load is what B8 uses) ----
 
 def save_labels(df, path):
@@ -151,7 +165,7 @@ def _draw_strip(width, t, labels, cur, trace=None):
     return strip
 
 
-def run_gui(clip, out, frames_path=None, labeler="", angle_col="theta_ht_deg"):
+def run_gui(clip, out, frames_path=None, labeler="", angle_col="theta_ht_deg", block_id=None):
     import cv2
     cap = cv2.VideoCapture(clip)
     video = []
@@ -165,7 +179,7 @@ def run_gui(clip, out, frames_path=None, labeler="", angle_col="theta_ht_deg"):
     if not video:
         raise SystemExit(f"could not read any frame from {clip}")
 
-    frames = pd.read_parquet(frames_path) if frames_path else None
+    frames = select_block(pd.read_parquet(frames_path), block_id) if frames_path else None
     t, source = frame_times(len(video), frames, fps)
     trace = None
     if frames is not None and angle_col in frames.columns:
@@ -238,9 +252,11 @@ def main():
     p.add_argument("--out", help="labels CSV (default: <clip>_labels.csv)")
     p.add_argument("--labeler", default="")
     p.add_argument("--angle", default="theta_ht_deg", help="angle shown on the timeline (theta_v_deg for V4 clips)")
+    p.add_argument("--block", help="block_id of this clip when frames.parquet holds several")
     a = p.parse_args()
     if a.clip:
-        run_gui(a.clip, a.out or os.path.splitext(a.clip)[0] + "_labels.csv", a.frames, a.labeler, a.angle)
+        run_gui(a.clip, a.out or os.path.splitext(a.clip)[0] + "_labels.csv", a.frames, a.labeler,
+                a.angle, a.block)
         return
 
     # No clip: check the bookkeeping on a mock's truth times.

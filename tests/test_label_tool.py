@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from neuroflow.segmentation.label_tool import (
-    LABEL_COLUMNS, Labels, frame_times, load_labels, save_labels)
+    LABEL_COLUMNS, Labels, frame_times, load_labels, save_labels, select_block)
 from neuroflow.segmentation.segment import calibration_refs, segment_reps, validate
 
 FX = os.path.join(os.path.dirname(__file__), "..", "fixtures")
@@ -98,3 +98,17 @@ def test_labels_feed_b8_comparison(tmp_path):
     rest, rom = calibration_refs()["mock01"]
     ok, n, _ = validate(frames, load_labels(p), reps=segment_reps(frames, rom, rest))
     assert ok and n == len(truth)
+
+
+def test_select_block():
+    a = pd.read_parquet(os.path.join(FX, "mock_frames_normal.parquet"))
+    b = pd.read_parquet(os.path.join(FX, "mock_frames_slow.parquet"))
+    both = pd.concat([a, b], ignore_index=True)
+    assert len(select_block(both, "slow")) == len(b)
+    assert len(select_block(a)) == len(a)                       # single clip: no --block needed
+    with pytest.raises(ValueError, match="pass --block"):
+        select_block(both)
+    with pytest.raises(ValueError, match="available"):
+        select_block(both, "T_99")
+    t, _ = frame_times(3, select_block(both, "slow"))           # frame_idx restarts per clip
+    assert np.allclose(t, b["t_capture_ms"].iloc[:3])
