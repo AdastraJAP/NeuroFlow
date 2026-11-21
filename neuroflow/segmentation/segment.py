@@ -88,14 +88,21 @@ def angle_signal(frames, angle_col=ANGLE_COL):
 
 def reps_angle_col(reps, angle_col=None):
     """Angle column for downstream steps: the one the reps were segmented on.
-    Passing a different one raises, so two angle definitions are never mixed."""
+    Passing a different one raises, so two angle definitions are never mixed.
+    Read from the angle_col column, or, for a table with 0 reps, from its metadata
+    (reps.attrs). An empty table that records neither needs angle_col passed."""
     recorded = reps["angle_col"].dropna().unique() if "angle_col" in reps.columns else []
+    if len(recorded) == 0 and reps.attrs.get("angle_col"):
+        recorded = [reps.attrs["angle_col"]]
     if len(recorded) > 1:
         raise ValueError(f"reps mix angle columns {list(recorded)}")
     if len(recorded) == 1:
         if angle_col is not None and angle_col != recorded[0]:
             raise ValueError(f"reps were segmented on {recorded[0]}, not {angle_col}")
         return recorded[0]
+    if angle_col is None and len(reps) == 0:
+        raise ValueError("this reps table has 0 reps and doesn't record its angle; "
+                         f"pass angle_col (one of {ANGLE_COLS})")
     return angle_col or ANGLE_COL
 
 
@@ -229,7 +236,12 @@ def _rep_table(frames, reps, seg_method, angle_col=ANGLE_COL):
             "t_end_ms": t_e,
             "duration_s": (t_e - t_s) / 1000.0,
         })
-    return pd.DataFrame(rows, columns=REP_COLUMNS)
+    out = pd.DataFrame(rows, columns=REP_COLUMNS)
+    # Also keep the angle in the table's metadata: a block with 0 reps has no
+    # angle_col values, and downstream must not fall back to the default angle.
+    # (Survives .copy() and to_parquet / read_parquet.)
+    out.attrs["angle_col"] = angle_col
+    return out
 
 
 def _run(frames, t_high, t_low, method, angle_col=ANGLE_COL):

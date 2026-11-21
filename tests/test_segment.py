@@ -151,3 +151,39 @@ def test_reps_carry_block_side_and_version():
     assert (reps["schema_version"] == 1).all()
     assert (reps["block_id"] == "normal").all() and (reps["side"] == "right").all()
     assert reps["rep_id"].str.startswith("mock01_s1_normal_").all()
+
+
+# ---- zero reps keep their angle (Adastra, PR #3 review) ----
+from neuroflow.segmentation.segment import REP_COLUMNS  # noqa: E402
+
+def _flat_v4(frames):
+    """V4-like frames (theta_ht_deg all NaN) where the arm never lifts: 0 reps."""
+    flat = 10 + np.random.default_rng(1).normal(0, 0.5, len(frames))
+    return _v4_like(frames).assign(theta_v_deg=flat)
+
+
+def test_zero_reps_keep_the_selected_angle(tmp_path):
+    frames, _, _, _ = _load("normal")
+    rest, rom = CALIB_V
+    v4 = _flat_v4(frames)
+    reps = segment_reps(v4, rom, rest, angle_col="theta_v_deg")
+    assert len(reps) == 0 and reps.attrs["angle_col"] == "theta_v_deg"
+    # downstream uses theta_v_deg, not the theta_ht_deg default (all NaN here)
+    assert len(rep_features(v4, reps, rest, rom)) == 0
+    assert rep_matrix(v4, reps, rest, rom)[0].shape[0] == 0
+    with pytest.raises(ValueError, match="segmented on theta_v_deg"):
+        rep_features(v4, reps, rest, rom, angle_col="theta_ht_deg")
+    # the angle survives a parquet round trip
+    path = tmp_path / "reps.parquet"
+    reps.to_parquet(path)
+    assert len(rep_features(v4, pd.read_parquet(path), rest, rom)) == 0
+
+
+def test_empty_reps_without_angle_must_name_it():
+    frames, _, _, _ = _load("normal")
+    rest, rom = CALIB_V
+    v4 = _flat_v4(frames)
+    bare = pd.DataFrame(columns=REP_COLUMNS)              # 0 reps, no recorded angle
+    with pytest.raises(ValueError, match="pass angle_col"):
+        rep_features(v4, bare, rest, rom)
+    assert len(rep_features(v4, bare, rest, rom, angle_col="theta_v_deg")) == 0
