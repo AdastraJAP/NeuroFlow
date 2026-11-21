@@ -8,3 +8,6 @@ Neuro-flow_ Research Basis for a Laptop-Webcam Shoulder-Abduction Assessment Mod
 
 # Local notes (not part of the code)
 docs/
+
+# Real recordings (personal data, shared privately; never commit)
+data/
