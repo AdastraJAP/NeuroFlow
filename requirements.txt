@@ -1,0 +1,13 @@
+# Python packages for the neuroflow package and tests/.
+# Install:  python -m pip install -r requirements.txt
+# Versions in comments are the ones the tests last passed with (Python 3.12).
+numpy            # 2.5.5
+pandas           # 3.1.1
+pyarrow          # 26.0.1  (parquet tables)
+scipy            # 1.18.1
+scikit-learn     # 1.9.1   (C3 scorer: Ledoit-Wolf covariance)
+opencv-python    # 5.1.0   (B9 label tool; on WSL also: sudo apt install libsm6 libice6)
+pytest           # 9.2.0
+
+# Optional: tests/ cross-check B4's DTW against it, skipped if missing.
+dtaidistance     # 2.5.1
