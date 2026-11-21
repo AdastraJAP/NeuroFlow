@@ -61,3 +61,74 @@ def test_b3_no_false_reps_at_rest():
     frames["theta_ht_deg"] = 10 + np.random.default_rng(0).normal(0, 1, len(frames))
     for rest, rom in CALIB.values():
         assert len(segment_reps(frames, rom, rest)) == 0
+
+
+# ---- angle input: theta_ht_deg (default) or theta_v_deg (A's V4 clips), issue #4 ----
+import sys
+
+sys.path.insert(0, FX)
+from make_mock_frames import make_session  # noqa: E402
+
+from neuroflow.segmentation.features import rep_features  # noqa: E402
+from neuroflow.segmentation.segment import calibrate  # noqa: E402
+from neuroflow.segmentation.templates import rep_matrix  # noqa: E402
+
+CALIB_V = calibrate(make_session("normal", seed=7)[0], angle_col="theta_v_deg")
+
+
+def _v4_like(frames):
+    """Like A's seated V4 export: no hip landmarks, so theta_ht_deg is all NaN."""
+    return frames.assign(theta_ht_deg=np.nan, trunk_lean_deg=np.nan)
+
+
+@pytest.mark.parametrize("variant", ["normal", "slow", "capped"])
+def test_theta_v_segments_like_theta_ht(variant):
+    frames, truth, _, _ = _load(variant)
+    rest, rom = CALIB_V
+    reps = segment_reps(_v4_like(frames), rom, rest, angle_col="theta_v_deg")
+    ok, n, _ = validate(frames, truth, reps=reps)
+    assert ok and n == len(truth)
+    assert (reps["angle_col"] == "theta_v_deg").all()
+
+
+def test_default_angle_is_recorded():
+    frames, _, rest, rom = _load("normal")
+    assert (segment_reps(frames, rom, rest)["angle_col"] == "theta_ht_deg").all()
+    assert (segment_fixed(frames)["angle_col"] == "theta_ht_deg").all()
+
+
+def test_missing_angle_fails_loudly_not_zero_reps():
+    frames, _, rest, rom = _load("normal")
+    with pytest.raises(ValueError, match="theta_ht_deg has no values"):
+        segment_reps(_v4_like(frames), rom, rest)
+    with pytest.raises(ValueError, match="theta_ht_deg has no values"):
+        calibrate(_v4_like(frames))
+    with pytest.raises(ValueError, match="angle_col must be one of"):
+        segment_fixed(frames, angle_col="elbow_deg")
+
+
+def test_downstream_follows_the_segmented_angle():
+    frames, _, _, _ = _load("normal")
+    rest, rom = CALIB_V
+    v4 = _v4_like(frames)
+    reps = segment_reps(v4, rom, rest, angle_col="theta_v_deg")
+    feats = rep_features(v4, reps, rest, rom)              # picks theta_v_deg from reps
+    assert not feats[["rom_peak_deg", "sparc"]].isna().any().any()
+    assert feats["max_trunk_lean_deg"].isna().all()        # no hips -> no trunk lean
+    R, kept = rep_matrix(v4, reps, rest, rom)
+    assert R.shape[0] == len(reps)
+    with pytest.raises(ValueError, match="segmented on theta_v_deg"):
+        rep_features(v4, reps, rest, rom, angle_col="theta_ht_deg")
+    with pytest.raises(ValueError, match="segmented on theta_v_deg"):
+        rep_matrix(v4, reps, rest, rom, angle_col="theta_ht_deg")
+
+
+def test_theta_v_reads_trunk_lean_as_extra_range():
+    """Known limit of theta_v: on the leaning mock it adds the ~12 deg lean to the range."""
+    frames, _, rest, rom = _load("leaning")
+    reps = segment_reps(frames, rom, rest)
+    ht = rep_features(frames, reps, rest, rom)["rom_peak_deg"].mean()
+    rest_v, rom_v = CALIB_V
+    reps_v = segment_reps(frames, rom_v, rest_v, angle_col="theta_v_deg")
+    v = rep_features(frames, reps_v, rest_v, rom_v)["rom_peak_deg"].mean()
+    assert v - ht == pytest.approx(12.0, abs=1.5)

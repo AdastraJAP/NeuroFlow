@@ -11,6 +11,9 @@ Variants (one file each):
     slow     same, but each rep 2x longer       (condition "slow", level "2x")
     capped   peak ~45 deg                        (condition "rom_cap", level "45deg")
     leaning  trunk leans up to ~12 deg per rep   (condition "trunk_lean", level "large")
+    low_rom  a second user whose full range is ~25 deg (subject mock02)
+    elbow_30 elbow bends from ~175 to ~145 deg per rep (condition "elbow_bend", level "30deg")
+    hike     shoulder hike rises to ~0.20 per rep  (condition "hike", level "shrug")
 
 Run:
     python fixtures/make_mock_frames.py
@@ -27,6 +30,10 @@ Assumptions (mock only, not literature values): 30 fps with +-3 ms frame
 jitter, rest ~10 deg, angle noise 1 deg, symmetric half-cosine reps
 (time_to_peak_ratio = 0.5 exactly), theta_v = theta_ht + trunk lean
 (first-order relation from the Research Brief, an inference).
+B7 extension: the elbow_30 / hike shapes follow the same half-cosine as the
+rep; their sizes (30 deg, 0.20) are mock choices picked to sit clearly past
+the literature flags (153.4 deg, 0.174), not measured values. They add no
+random draws, so the older variants' files are unchanged.
 """
 
 import os
@@ -58,10 +65,16 @@ VARIANTS = {
     # B3: a different user whose own full range only reaches ~25 deg. Fixed 30 deg
     # thresholds (v0) never fire; ROM-normalised thresholds (v1) should.
     "low_rom": ("low_rom",    "25deg", 1.0,       25.0, 0.0),
+    # B7: one compensation each, to check the compensation features react.
+    # Names match Member C's mock blocks (block_id elbow_30 / hike).
+    "elbow_30": ("elbow_bend", "30deg", 1.0,      90.0, 0.0),
+    "hike":    ("hike",       "shrug", 1.0,       90.0, 0.0),
 }
 # Per-variant overrides (variants not listed keep the defaults, so their files do not change).
 PEAK_SD = {"low_rom": 1.0}          # default 3.0 deg rep-to-rep peak spread
 SUBJECT = {"low_rom": "mock02"}     # default "mock01"
+ELBOW_DROP = {"elbow_30": 30.0}     # deg the elbow bends at the rep peak (default 0)
+HIKE_MAX = {"hike": 0.20}           # hike_ratio at the rep peak (default 0)
 
 
 def make_rep(t_ms, rest, peak, dur_ms):
@@ -115,11 +128,17 @@ def make_session(variant, n_reps=10, noise_deg=1.0, seed=SEED):
 
     theta_ht = np.full(len(t), rest)
     lean = np.zeros(len(t))
+    elbow_drop = np.zeros(len(t))
+    hike = np.zeros(len(t))
     for r in reps:
         inside = (rel >= r["start"]) & (rel <= r["start"] + r["dur"])
-        theta_ht[inside] = make_rep(rel[inside] - r["start"], rest, r["peak"], r["dur"])
+        t_rep = rel[inside] - r["start"]
+        theta_ht[inside] = make_rep(t_rep, rest, r["peak"], r["dur"])
         if lean_max > 0:
-            lean[inside] = make_rep(rel[inside] - r["start"], 0.0, lean_max, r["dur"])
+            lean[inside] = make_rep(t_rep, 0.0, lean_max, r["dur"])
+        # No random draws here, so the older variants stay byte-for-byte the same.
+        elbow_drop[inside] = make_rep(t_rep, 0.0, ELBOW_DROP.get(variant, 0.0), r["dur"])
+        hike[inside] = make_rep(t_rep, 0.0, HIKE_MAX.get(variant, 0.0), r["dur"])
 
     n = len(t)
     theta_ht = theta_ht + rng.normal(0.0, noise_deg, n)
@@ -149,8 +168,8 @@ def make_session(variant, n_reps=10, noise_deg=1.0, seed=SEED):
     frames["theta_ht_deg"] = theta_ht
     frames["theta_v_deg"] = theta_ht + lean
     frames["trunk_lean_deg"] = lean
-    frames["elbow_deg"] = 175.0 + rng.normal(0.0, noise_deg, n)
-    frames["hike_ratio"] = rng.normal(0.0, 0.01, n)
+    frames["elbow_deg"] = 175.0 - elbow_drop + rng.normal(0.0, noise_deg, n)
+    frames["hike_ratio"] = hike + rng.normal(0.0, 0.01, n)
     frames["in_frame"] = True
     frames["jitter"] = 0.0
     frames["arm_len_ratio"] = 1.0
@@ -196,12 +215,20 @@ def check_session(variant, frames, truth):
         assert frames["trunk_lean_deg"].max() > 8.0
     else:
         assert frames["trunk_lean_deg"].max() < 3.0
+    if variant == "elbow_30":
+        assert frames["elbow_deg"].min() < 150.0, "elbow_30 must bend well below 175 deg"
+    else:
+        assert frames["elbow_deg"].min() > 168.0, "elbow must stay near straight"
+    if variant == "hike":
+        assert frames["hike_ratio"].max() > 0.17, "hike must rise past 0.17"
+    else:
+        assert frames["hike_ratio"].max() < 0.06, "hike must stay near 0"
 
 
 def main():
     print(f"seed = {SEED}")
     print(f"{'variant':<9} {'frames':>6} {'fps':>6} {'reps':>4} {'mean dur s':>10} "
-          f"{'max ht':>7} {'max lean':>8}")
+          f"{'max ht':>7} {'max lean':>8} {'min elb':>7} {'max hike':>8}")
     for variant in VARIANTS:
         frames, truth = make_session(variant)
         check_session(variant, frames, truth)
@@ -218,7 +245,8 @@ def main():
         fps = 1000.0 / np.median(np.diff(t))
         dur = (truth["t_end_ms"] - truth["t_start_ms"]).mean() / 1000.0
         print(f"{variant:<9} {len(frames):>6} {fps:>6.1f} {len(truth):>4} {dur:>10.2f} "
-              f"{frames['theta_ht_deg'].max():>7.1f} {frames['trunk_lean_deg'].max():>8.1f}")
+              f"{frames['theta_ht_deg'].max():>7.1f} {frames['trunk_lean_deg'].max():>8.1f} "
+              f"{frames['elbow_deg'].min():>7.1f} {frames['hike_ratio'].max():>8.3f}")
     print(f"\nall checks passed; files in {OUT_DIR}")
 
 

@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 
 from neuroflow.segmentation.dtw import dtw_distance, dtw_path
-from neuroflow.segmentation.segment import smooth
+from neuroflow.segmentation.segment import angle_signal, reps_angle_col, smooth
 
 TEMPLATE_LEN = 60
 MIN_VALID_FRAMES = 5
@@ -52,15 +52,15 @@ def resample_rep(t_ms, theta, t_start, t_end, n=TEMPLATE_LEN):
     return np.interp(t_new, t_ms[use], theta[use])
 
 
-def rep_matrix(frames, reps, rest_ref, rom_ref, n=TEMPLATE_LEN):
+def rep_matrix(frames, reps, rest_ref, rom_ref, n=TEMPLATE_LEN, angle_col=None):
     """
     Stack all usable reps of one block as rows of a (k, n) array, normalised to
     the user's range. `reps` needs t_start_ms and t_end_ms (e.g. from segment_reps).
     Also returns the rep_ids that were kept, so rows can be traced back.
+    angle_col: defaults to the angle the reps were segmented on; a different one raises.
     """
-    frames = frames.sort_values("t_capture_ms")
-    t = frames["t_capture_ms"].to_numpy(dtype=float)
-    theta = smooth(t, frames["theta_ht_deg"].to_numpy())
+    frames, t, theta = angle_signal(frames, reps_angle_col(reps, angle_col))
+    theta = smooth(t, theta)
     theta = (theta - rest_ref) / rom_ref
     rows, kept = [], []
     for _, r in reps.iterrows():
