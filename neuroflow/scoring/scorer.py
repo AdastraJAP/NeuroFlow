@@ -50,6 +50,8 @@ def fit_scorer(train_reps: pd.DataFrame) -> dict:
     prec = LedoitWolf().fit(Z).precision_        # this is the inverse of Sigma
     d = np.sqrt(np.einsum("ij,jk,ik->i", Z, prec, Z))
 
+    from neuroflow.scoring.subscores import fit_subscores   # here: avoids a circular import
+
     return {
         "features": FEATURES,
         "mu": mu,
@@ -58,6 +60,7 @@ def fit_scorer(train_reps: pd.DataFrame) -> dict:
         "d_ref": np.sort(d),                     # sorted for np.searchsorted
         "n_ref": len(d),
         "train_subjects": sorted(train_reps["subject_id"].unique()),
+        "sub": fit_subscores(train_reps),        # C4: per-feature ECDFs
     }
 
 
@@ -76,18 +79,35 @@ def score_reps(model: dict, reps: pd.DataFrame, fold_id=-1,
     if overlap and fold_id >= 0:
         raise ValueError(f"scoring subjects the model was fitted on: {sorted(overlap)}")
 
+    from neuroflow.scoring.subscores import deviation_table, feedback_codes, subscore_table
+
     d = mahalanobis(model, reps)
     missing = np.isnan(d)
-    # Keep the distance itself: the score floors at 0 for every rep beyond the
-    # most unusual normal training rep, d still grades how far out it is.
-    # Abstained reps get no subscores at all (None), not {"d": null}.
-    subscores = [None if np.isnan(x) else json.dumps({"d": round(float(x), 4)})
-                 for x in d]
 
     # ECDF: share of normal training reps that are at least as close as this rep
     p = np.searchsorted(model["d_ref"], np.nan_to_num(d), side="right") / model["n_ref"]
     p = np.where(missing, np.nan, p)
     score = 100.0 * (1.0 - p)
+
+    # C4: one 0-100 sub-score per feature, plus a feedback code
+    dev = deviation_table(model["sub"], reps)
+    subs = subscore_table(model["sub"], reps, dev=dev)
+    feedback = feedback_codes(score, subs, dev).to_numpy(copy=True)   # pandas 3: to_numpy() can be read-only
+    feedback[missing] = None
+
+    # Keep the distance itself: the score floors at 0 for every rep beyond the
+    # most unusual normal training rep, d still grades how far out it is.
+    # Abstained reps get no subscores at all (None), not {"d": null}.
+    def as_json(i):
+        if missing[i]:
+            return None
+        row = {"d": round(float(d[i]), 4)}
+        for name in subs.columns:
+            v = subs[name].iat[i]
+            row[name] = None if np.isnan(v) else round(float(v), 2)
+        return json.dumps(row)
+
+    subscores = [as_json(i) for i in range(len(d))]
 
     return pd.DataFrame({
         "schema_version": SCHEMA_VERSION,
@@ -98,10 +118,10 @@ def score_reps(model: dict, reps: pd.DataFrame, fold_id=-1,
         "fold_id": fold_id,
         "score_0_100": score,
         "percentile": p,
-        "subscores": subscores,        # {"d": ...}; C4 adds the per-feature keys
+        "subscores": subscores,        # {"d": ..., "rom": ..., ..., "hike": ...}
         "abstain": missing,
         "abstain_reason": np.where(missing, "missing_feature", None),
-        "feedback_code": None,
+        "feedback_code": feedback,
     }, columns=SCORE_COLUMNS)
 
 

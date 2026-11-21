@@ -95,7 +95,7 @@ Legend: ✅ done (merged into `main`) · 🟡 in progress or in review · ⬜ no
 | C1 | Mock `reps.parquet` generator + subject-wise `folds.csv` builder (locked test subset) | S | ✅ merged (PR #2) | Mock with 18 subjects; no subject in two folds |
 | C2 | RehabHub baseline: Z of DTW distance vs normal reps, score = 100 / max(Z, 1) | S | ✅ merged (PR #2) | Reproduces the saturation: many reps with Z < 1 all get 100 |
 | C3 | Scorer v1: standardise features → Ledoit-Wolf covariance → Mahalanobis distance → pooled ECDF → 0–100 | M | 🟡 in review (PR #8) | A shifted mock group scores lower than normal; ECDF of training normals ≈ uniform |
-| C4 | P3 sub-scores: per-feature ECDF for lean, elbow, hike (and rom, tempo, shape, smooth); feedback code from the worst sub-score | M | ⬜ | A lean-heavy mock rep returns feedback code "trunk lean" |
+| C4 | P3 sub-scores: per-feature ECDF for lean, elbow, hike (and rom, tempo, shape, smooth); feedback code from the worst sub-score | M | 🟡 in review (PR #8) | A lean-heavy mock rep returns feedback code "trunk" |
 | C5 | LOSO harness: fit on train subjects, score the held-out subject, AUROC per condition | M | ⬜ | AUROC ≈ 0.5 on shuffled labels; high on a clearly shifted mock |
 | C6 | Statistics: subject-level bootstrap CI, paired score difference, ICC(2,1), SEM, MDC | L | ⬜ | CI on a known synthetic effect covers the truth ≈ 95 % of the time |
 | C7 | **P2 ablation grid runner** (reference × band × tempo term × mapping) | L | ⬜ | One command reproduces the table; each cell has a CI |
@@ -118,6 +118,10 @@ Legend: ✅ done (merged into `main`) · 🟡 in progress or in review · ⬜ no
 - **New floor at 0.** Every rep beyond the most unusual normal training rep scores 0, so band light and medium both get 0. The raw Mahalanobis distance is kept in `subscores` as `d` so C7 can still grade severity.
 - **Normal median is 40.5, not 50.** μ, Σ and the ECDF reference are fitted on the training subjects, so their own normal reps fit the model by construction; a held-out subject moves in their own way. That 50 → 40.5 drop is a small example of the P1 leakage gap.
 
+**C4 result (mock data, LOSO, session-2 reps):** the expected feedback code is the most common one for every condition: trunk_lean → `trunk`, elbow_bend → `elbow`, rom_cap → `rom`, slow and band → `tempo` (feedback on 99–100 % of reps; rom_cap 90° on 51 %, a mild case). **False feedback on held-out normal reps: 6.8 %**, above the naive 5 % because held-out subjects score lower than training subjects. Hike shrug gets feedback on 9.3 %, mostly `shape`, because hike is never allowed to speak.
+
+**Real data (G1, P001, 3 clips) – known gap:** `trunk_lean_deg` is NaN on 100 % of frames and `elbow_deg` is valid on only 0–5 %, so the C3 scorer as written would abstain on every real rep. The feature set must depend on what the pipeline provides (and be recorded in the model). To do before G3.
+
 **Mock blocks:** `normal_calib, normal_test, slow 2x/3x, band light/medium, trunk_lean small/large, elbow_bend 30deg/60deg, hike shrug, rom_cap 60deg/90deg` (7 conditions, 13 blocks). Naming follows B's mock (`condition` + `level`).
 
 ---
@@ -134,7 +138,10 @@ Legend: ✅ done (merged into `main`) · 🟡 in progress or in review · ⬜ no
 ### C4: Sub-scores (P3)
 - Same pooled-ECDF idea, one feature at a time: rom, tempo, shape (DTW), smooth (SPARC), trunk, elbow, hike.
 - Pick the direction for each feature (a bigger lean is worse; a smaller elbow angle is worse; a more negative SPARC is worse).
-- `feedback_code` = the name of the worst sub-score (for example `trunk_lean`), stored in `subscores` as JSON.
+- `feedback_code` (its own column, not inside `subscores`) = the short name of the worst sub-score, for example `trunk`. Allowed values: `contract.FEEDBACK_CODES` (no `d`, no `hike`); `None` when there is no feedback.
+- **Directions:** high = worse for trunk, shape (DTW), hike; low = worse for elbow, smooth (SPARC), **rom**; two-sided for tempo (|duration_ratio − train median|). One-sided-low uses ECDF(−x).
+- **When to give feedback:** only if the C3 score is < 5 **and** the worst sub-score is low too; otherwise `None`, so a normal rep never gets a false message. Thresholds are set on training subjects only.
+- **Ties at 0:** break them with the robust deviation (x − train median) / train MAD, on the bad side only. These values are used to pick the code and are not stored.
 - Hike stays **exploratory** (F1 ≈ 0.55 in Pavlikov 2026; it's weak everywhere).
 
 ### C5: LOSO harness
@@ -215,7 +222,9 @@ Until G2, I build everything on `fixtures/mock_reps.parquet`. Because the schema
 5. **3D side experiment** (professor): world-landmark angle next to the 2D angle, front vs ~45° view. That's A's area.
 6. **Professor wants** one screenshot with the skeleton overlay (to see where the hip is).
 7. **Calibration session:** session-1 calibration only, or each session's own `normal_calib`? Own-session is more realistic (camera and day change). It affects `rom_rel_personal` (my mock, `make_mock_reps.py`), `duration_ratio` (my scorer) and `rest_ref`/`rom_ref` on real data (B). It also matters for C6 test-retest. For now everything uses session 1.
-8. Next steps after Foundations: a small pilot with 3–5 classmates; the squat only after the shoulder workflow is stable.
+8. **ROM is one-sided (C4):** only "not high enough" loses points. Going above the calibration range is progress, and overshoot through leaning is already caught by the trunk sub-score. Tempo stays two-sided (too fast = swinging the arm). Team to confirm.
+9. **Feedback threshold (C4):** give a `feedback_code` only when `score_0_100` < 5. Team to confirm the value once we see how often held-out normal reps cross it.
+10. Next steps after Foundations: a small pilot with 3–5 classmates; the squat only after the shoulder workflow is stable.
 
 ---
 
