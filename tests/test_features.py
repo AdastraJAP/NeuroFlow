@@ -173,6 +173,31 @@ def test_window_extreme_nan_handling():
     assert np.isnan(rep_window_extreme(T5, sig, 1000.0, 2000.0, "min"))          # no frame inside
 
 
+def test_window_extreme_min_valid_frac():
+    sig = np.array([170.0, np.nan, np.nan, np.nan, 160.0])        # 2 of 5 frames valid
+    assert rep_window_extreme(T5, sig, 0.0, 400.0, "min") == pytest.approx(160.0)
+    assert np.isnan(rep_window_extreme(T5, sig, 0.0, 400.0, "min", min_valid_frac=0.5))
+    assert rep_window_extreme(T5, sig, 0.0, 400.0, "min", min_valid_frac=0.4) == pytest.approx(160.0)
+
+
+def test_rep_features_needs_half_the_frames_valid():
+    """Like the G1 clips: elbow valid on only a few frames of the rep -> NaN, not a 1-frame min."""
+    frames = pd.read_parquet(os.path.join(FX, "mock_frames_elbow_30.parquet"))
+    rest, rom = CALIB["mock01"]
+    reps = segment_reps(frames, rom, rest)
+    sparse = frames.copy()
+    keep = np.zeros(len(frames), bool)
+    keep[::3] = True                                               # ~33 % valid
+    sparse.loc[~keep, "elbow_deg"] = np.nan
+    assert rep_features(sparse, reps, rest, rom)["min_elbow_deg"].isna().all()
+    half = frames.copy()
+    keep = np.zeros(len(frames), bool)
+    keep[::3] = True
+    keep[1::3] = True                                              # ~67 % valid
+    half.loc[~keep, "elbow_deg"] = np.nan
+    assert not rep_features(half, reps, rest, rom)["min_elbow_deg"].isna().any()
+
+
 def test_window_extreme_rejects_bad_how():
     with pytest.raises(ValueError):
         rep_window_extreme(T5, np.ones(5), 0.0, 400.0, "mean")

@@ -126,7 +126,7 @@ def rep_speed(t_ms, theta_s, t_start_ms, t_end_ms):
 
 # ---- 5. compensation (B7) ----
 
-def rep_window_extreme(t_ms, signal_s, t_start_ms, t_end_ms, how):
+def rep_window_extreme(t_ms, signal_s, t_start_ms, t_end_ms, how, min_valid_frac=0.0):
     """
     Max or min (how = "max" | "min") of a per-frame signal between a rep's boundaries.
     One helper serves all three compensation features, which are the same
@@ -135,7 +135,9 @@ def rep_window_extreme(t_ms, signal_s, t_start_ms, t_end_ms, how):
         min_elbow_deg       how="min" on elbow_deg      (180 = straight arm)
         max_hike_ratio      how="max" on hike_ratio     (already relative to rest)
     Pass the signal smoothed (segment.smooth): the max of raw noise is biased upward.
-    NaN frames are skipped; NaN if a boundary is unknown or no valid frame lies inside.
+    NaN frames are skipped; NaN if a boundary is unknown, no valid frame lies inside,
+    or fewer than min_valid_frac of the rep's frames are valid (a max/min over a
+    handful of frames is not a rep-level measurement).
     The literature flags (lean 5.2 deg, elbow 153.4 deg, hike 0.174) belong to the
     scorer (C4), not here.
     """
@@ -144,12 +146,17 @@ def rep_window_extreme(t_ms, signal_s, t_start_ms, t_end_ms, how):
     if np.isnan(t_start_ms) or np.isnan(t_end_ms):
         return np.nan
     t_ms = np.asarray(t_ms, dtype=float)
-    vals = np.asarray(signal_s, dtype=float)[(t_ms >= t_start_ms) & (t_ms <= t_end_ms)]
-    vals = vals[~np.isnan(vals)]
-    if len(vals) == 0:
+    inside = np.asarray(signal_s, dtype=float)[(t_ms >= t_start_ms) & (t_ms <= t_end_ms)]
+    vals = inside[~np.isnan(inside)]
+    if len(vals) == 0 or len(vals) < min_valid_frac * len(inside):
         return np.nan
     return float(vals.max() if how == "max" else vals.min())
 
+
+# A compensation value needs at least half of the rep's frames valid. On Adastra's G1
+# clips elbow was valid on 0-13 frames per rep (wrist out of frame), which gave
+# one-frame "minimums". 50 % is our choice, not a literature value; tune on training data.
+COMP_MIN_VALID_FRAC = 0.5
 
 # Per-frame column -> (reps column, reduction, transform before smoothing).
 COMPENSATION = [
@@ -194,7 +201,8 @@ def rep_features(frames, reps, rest_ref, rom_ref, angle_col=None):
         sig = frames[col].to_numpy(dtype=float)
         sig_s = smooth(t, transform(sig) if transform else sig)
         sig_s[np.isnan(sig)] = np.nan   # smooth() fills gaps; don't invent values A4 didn't have
-        out[name] = [rep_window_extreme(t, sig_s, r["t_start_ms"], r["t_end_ms"], how)
+        out[name] = [rep_window_extreme(t, sig_s, r["t_start_ms"], r["t_end_ms"], how,
+                                        COMP_MIN_VALID_FRAC)
                      for _, r in out.iterrows()]
     return out
 
