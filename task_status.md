@@ -41,4 +41,4 @@ Legend: ✅ done · 🟡 in progress / blocked on a decision · ⬜ not started
 | Gate | Status |
 | --- | --- |
 | G1 Signal (Adastra's real frames) | 🟡 Adastra's draft PR #5; 3 real clips, `theta_v_deg` only; data shared on Google Drive |
-| G2 Reps (B's real reps, reviewed by A) | ⬜ |
+| G2 Reps (B's real reps, reviewed by Adastra) | 🟡 Dry run on Adastra's 3 G1 clips: 1 rep found in each (correct count). Needs B9 labels to check boundaries, then Adastra's review |

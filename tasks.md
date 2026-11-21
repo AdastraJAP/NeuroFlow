@@ -322,6 +322,24 @@ So a capped or low-range rep will look less smooth from noise alone. This matter
 
 **Note:** real fps is 24–29, not 30, so ±67 ms is about 1.7 frames, not 2.
 
+## G2 dry run on real data (2026-11-22)
+
+**Data:** Adastra's G1 package on Google Drive, saved in `data/g1/` (gitignored, personal data). All 20 files match `manifest.json`. Three seated right-arm clips from one participant (P001/S001): T_01 normal (240 frames), T_02 slow (366), T_05 insufficient elevation, coded `rom_cap` (143). 24–28 fps. `theta_v_deg` has values on every frame.
+
+**Run:** `python docs/g2_real_run.py data/g1/practice` (local). B3 on `theta_v_deg`, calibrated on Adastra's three complete **practice** reps (rest 11.6°, range 79.8°), never on the T clips.
+
+| Clip | Reps (B2 / B3) | Duration | Time to peak | Range | Personal range | SPARC |
+| --- | --- | --- | --- | --- | --- | --- |
+| T_01 normal | 1 / 1 | 6.94 s | 0.53 | 82.2° | +0.03 | −4.13 |
+| T_02 slow | 1 / 1 | 12.94 s | 0.56 | 74.1° | −0.07 | −5.86 |
+| T_05 rom_cap | 1 / 1 | 3.91 s | 0.47 | 41.6° | −0.48 | −3.83 |
+
+Rep counts are right. Slow is about 1.9× normal, and rom_cap reaches about half the personal range, as expected. Real reps are much slower than the mocks (7 s vs 2 s) and SPARC is more negative (−4 to −6 vs −2.7).
+
+**Compensation on real data:** trunk lean and hike are NaN by design (no hips, no hike definition). Elbow is NaN on 95–100 % of frames (wrist out of frame or low visibility), so `min_elbow_deg` comes from 13 frames (T_01), 0 (T_02, NaN) and 1 (T_05). **Open:** B7 should probably require a minimum share of valid frames in the rep before reporting a value.
+
+**Next for G2:** label the three clips with B9 (the window needs `sudo apt install -y libsm6 libice6`), compare boundaries, then ask Adastra to review.
+
 ## Decisions log
 
 | Date | Decision |
@@ -347,3 +365,4 @@ So a capped or low-range rep will look less smooth from noise alone. This matter
 | 2026-11-21 | Issue #4: agreed with A on a configurable angle (`theta_v_deg` for V4 clips) and a separate rest-corrected shoulder-tilt feature; data shared outside git |
 | 2026-11-21 | `angle_col` added and recorded in reps; thresholds unchanged after checking on A's practice clips |
 | 2026-11-21 | Reps output gains `schema_version`, `block_id`, `side` in 7willA's column order; G1 data received from Adastra on Google Drive |
+| 2026-11-22 | G2 dry run: real G1 clips segmented on `theta_v_deg` with practice-clip calibration; 1/1/1 reps |
