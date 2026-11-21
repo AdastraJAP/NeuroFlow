@@ -19,6 +19,11 @@ Thumbs.db
 /NeuroFlow_Shoulder_to_Elbow_and_ShoulderLine_tilt_approach/calibration/*/left/
 /NeuroFlow_Shoulder_to_Elbow_and_ShoulderLine_tilt_approach/logs/*/left/
 /NeuroFlow_Shoulder_to_Elbow_and_ShoulderLine_tilt_approach/review/*/left/
+/NeuroFlow_Shoulder_to_Elbow_and_ShoulderLine_tilt_approach/clips/*/both/
+/NeuroFlow_Shoulder_to_Elbow_and_ShoulderLine_tilt_approach/traces/*/both/
+/NeuroFlow_Shoulder_to_Elbow_and_ShoulderLine_tilt_approach/calibration/*/both/
+/NeuroFlow_Shoulder_to_Elbow_and_ShoulderLine_tilt_approach/logs/*/both/
+/NeuroFlow_Shoulder_to_Elbow_and_ShoulderLine_tilt_approach/review/*/both/
 
 # Project reference documents (kept local)
 Neuro-Flow Implementation Plan Tasks, Workflow and Member Prompts.md

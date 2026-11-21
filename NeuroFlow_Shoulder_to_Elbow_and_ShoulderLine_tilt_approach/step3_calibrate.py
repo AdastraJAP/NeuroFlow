@@ -15,6 +15,8 @@ TARGETS = {ord('1'): 0, ord('2'): 45, ord('3'): 90, ord('4'): 120}
 
 def main():
     s = nf.load_settings()
+    if s['arm'] == 'both':
+        raise SystemExit('Angle cross-check records one anatomical arm at a time; select left or right first.')
     cap, w, h = nf.open_camera(s.get("camera_index", 0), s["capture_width"], s["capture_height"])
     win = "Angle cross-check: 1=0  2=45  3=90  4=120  q=quit"
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)

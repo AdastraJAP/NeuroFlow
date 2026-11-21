@@ -58,7 +58,7 @@ def main():
         print('13  Shoulder visibility test')
         print('14  SWITCH POSITION: seated / standing')
         print('15  CHANGE countdown and movement timeout')
-        print('16  SWITCH ANATOMICAL ARM: right / left')
+        print('16  SELECT ARM MODE: right / left / both')
         print('17  Record DIAGNOSTIC repetition (not practice or held-out)')
         print(' 0  Exit')
         print('-' * 68)
@@ -86,14 +86,17 @@ def main():
                 s['dtw_threshold'] = None
                 s['dtw_calibration'] = None
                 nf.save_settings(s)
-                # Previous calibration belongs to a different reference.
-                traces = scoring_dir(s)
-                for filename in ('summary_practice.csv', 'practice_meta.json', 'reference_meta.json'):
-                    stale = traces / filename
-                    if stale.exists():
-                        stale.unlink()
-                print(f'New {position} reference saved. DTW reset for {position} ONLY.')
-                print('Record 3 complete + 3 incomplete practice clips for this reference.')
+                if s['arm'] != 'both':
+                    # Previous calibration belongs to a different reference.
+                    traces = scoring_dir(s)
+                    for filename in ('summary_practice.csv', 'practice_meta.json', 'reference_meta.json'):
+                        stale = traces / filename
+                        if stale.exists():
+                            stale.unlink()
+                    print(f'New {position} {s["arm"]} reference saved; its DTW calibration was reset.')
+                    print('Record 3 complete + 3 incomplete practice clips for this reference.')
+                else:
+                    print('Bilateral reference saved for measurement review; bilateral DTW scoring is not calibrated.')
             else:
                 print('Reference was cancelled; previous settings are unchanged.')
         elif choice == '5':
@@ -112,13 +115,19 @@ def main():
             else:
                 print(f'No {position} reference yet. Choose 4 first.')
         elif choice == '8':
-            run('step5_score.py')
+            if s['arm'] == 'both':
+                print('Bilateral DTW scoring is pending a team-agreed interface. Capture and review are available.')
+            else:
+                run('step5_score.py')
         elif choice == '9':
-            value = input('Enter suggested PRACTICE DTW threshold (ENTER cancels): ').strip()
-            if value:
-                run('step5_score.py', '--freeze', value)
+            if s['arm'] == 'both':
+                print('Bilateral threshold freezing is unavailable; no bilateral DTW calibration exists.')
+            else:
+                value = input('Enter suggested PRACTICE DTW threshold (ENTER cancels): ').strip()
+                if value:
+                    run('step5_score.py', '--freeze', value)
         elif choice == '10':
-            if s['dtw_threshold'] is None:
+            if s['arm'] != 'both' and s['dtw_threshold'] is None:
                 print('First score practice (8) and freeze a threshold (9).')
                 continue
             name = next_name(s, 'test', 'T')
@@ -137,13 +146,22 @@ def main():
                     wr.writerow([name,label])
                 print('Expected label saved:', position, name, label)
         elif choice == '11':
-            run('step5_score.py', 'test')
+            if s['arm'] == 'both':
+                print('Bilateral held-out clips can be reviewed, but scoring is pending an agreed interface.')
+            else:
+                run('step5_score.py', 'test')
         elif choice == '12':
-            run('step6_demo.py')
+            if s['arm'] == 'both':
+                print('Bilateral live measurement is option 2; calibrated demo scoring is unavailable.')
+            else:
+                run('step6_demo.py')
         elif choice == '13':
             run('visibility_test.py', 'shoulder')
         elif choice == '14':
             other = 'standing' if position == 'seated' else 'seated'
+            if s['arm'] == 'both':
+                print('Bilateral capture is seated only. Select right or left before switching position.')
+                continue
             selected = input(f'Switch from {position} to {other}? [Y/n]: ').strip().lower()
             if selected in ('','y','yes'):
                 nf.set_position(other)
@@ -158,11 +176,16 @@ def main():
             except ValueError as exc:
                 print('Invalid timing:', exc)
         elif choice == '16':
-            other = 'left' if s['arm'] == 'right' else 'right'
-            selected = input(f'Switch anatomical arm from {s["arm"]} to {other}? [Y/n]: ').strip().lower()
-            if selected in ('', 'y', 'yes'):
-                active = nf.set_arm(other)
-                print(f'Now using {other.upper()} arm for {active["position"]}. Its reference and DTW calibration are separate.')
+            default = 'left' if s['arm'] == 'right' else 'right'
+            selected = input(f'Select anatomical mode [right/left/both] (ENTER {default}): ').strip().lower() or default
+            if selected in ('right', 'left', 'both'):
+                try:
+                    active = nf.set_arm(selected)
+                    print(f'Now using {selected.upper()} for {active["position"]}. Its reference and calibration are separate.')
+                except ValueError as exc:
+                    print(exc)
+            elif selected:
+                print('Choose right, left, or both.')
         elif choice == '17':
             run('step4_record.py', 'diagnostic', next_name(s, 'diagnostic', 'D'))
         else:

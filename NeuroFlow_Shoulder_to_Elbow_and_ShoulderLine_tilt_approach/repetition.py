@@ -26,8 +26,9 @@ class Repetition:
 
 
 class RepetitionDetector:
-    def __init__(self, timeout_s):
+    def __init__(self, timeout_s, rolling_rest_window=False):
         self.timeout_ms = timeout_s * 1000
+        self.rolling_rest_window = rolling_rest_window
         self.first_ms = self.last_ms = None
         self.rest = []
         self.baseline = None
@@ -99,9 +100,15 @@ class RepetitionDetector:
             self.rest.append(sample)
             values = [value for _, value in self.rest]
             if max(values) - min(values) > REST_SPREAD_DEG:
-                self.rest = [sample]
-            elif timestamp_ms - self.rest[0][0] >= REST_DWELL_MS:
-                self.baseline = median(values)
+                if self.rolling_rest_window:
+                    # Find a contiguous stable suffix; never bridge missing
+                    # samples or shorten the required 500 ms dwell.
+                    while max(v for _, v in self.rest) - min(v for _, v in self.rest) > REST_SPREAD_DEG:
+                        self.rest.pop(0)
+                else:
+                    self.rest = [sample]
+            if timestamp_ms - self.rest[0][0] >= REST_DWELL_MS:
+                self.baseline = median(value for _, value in self.rest)
         elif not self.active:
             if angle - self.baseline >= START_DELTA_DEG:
                 self.candidate.append(sample)

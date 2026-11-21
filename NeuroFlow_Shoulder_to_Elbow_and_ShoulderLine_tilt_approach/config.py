@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 SETTINGS_PATH = ROOT / 'settings.json'
 POSITIONS = ('seated', 'standing')
-ARMS = ('right', 'left')
+ARMS = ('right', 'left', 'both')
 LEGACY_VERSION = 'hip_free_2d_v3_solo_positions'
 VERSION = 'hip_free_2d_v4_segmented'
 
@@ -45,6 +45,11 @@ DEFAULT_SETTINGS = {
             'seated': {'reference_clip': None, 'dtw_threshold': None, 'dtw_calibration': None},
             'standing': {'reference_clip': None, 'dtw_threshold': None, 'dtw_calibration': None},
         },
+        # Bilateral capture is deliberately uncalibrated; it has no DTW scorer.
+        'both': {
+            'seated': {'reference_clip': None, 'dtw_threshold': None, 'dtw_calibration': None},
+            'standing': {'reference_clip': None, 'dtw_threshold': None, 'dtw_calibration': None},
+        },
     },
 }
 
@@ -72,7 +77,12 @@ def _read(path):
     if data['position'] not in POSITIONS:
         raise SystemExit(f"Invalid position: {data['position']}. Choose seated or standing.")
     if data['arm'] not in ARMS:
-        raise SystemExit('Arm must be left or right.')
+        raise SystemExit('Arm must be left, right, or both.')
+    if data['arm'] == 'both' and data['position'] != 'seated':
+        raise SystemExit('Bilateral capture is currently supported only while seated.')
+    if any(data['arm_conditions']['both']['seated'].get(key) is not None
+           for key in ('dtw_threshold', 'dtw_calibration')):
+        raise SystemExit('Bilateral DTW calibration is unsupported; remove it from local settings.')
     return data
 
 
@@ -100,7 +110,12 @@ def save_settings(settings, path=SETTINGS_PATH):
         raise ValueError('position must be seated or standing')
     arm = settings.get('arm', data['arm'])
     if arm not in ARMS:
-        raise ValueError('arm must be left or right')
+        raise ValueError('arm must be left, right, or both')
+    if arm == 'both' and active != 'seated':
+        raise ValueError('bilateral capture is currently seated only')
+    if arm == 'both' and any(settings.get(key) is not None
+                             for key in ('dtw_threshold', 'dtw_calibration')):
+        raise ValueError('bilateral DTW calibration is unsupported')
     for key in DEFAULT_SETTINGS:
         if key not in ('conditions', 'arm_conditions') and key in settings:
             data[key] = settings[key]
@@ -114,6 +129,8 @@ def set_position(position, path=SETTINGS_PATH):
     if position not in POSITIONS:
         raise ValueError('position must be seated or standing')
     data = _read(path)
+    if data['arm'] == 'both' and position != 'seated':
+        raise ValueError('bilateral capture is currently seated only; select one arm first')
     data['position'] = position
     _write(data, path)
     return load_settings(path)
@@ -122,8 +139,10 @@ def set_position(position, path=SETTINGS_PATH):
 def set_arm(arm, path=SETTINGS_PATH):
     """Select anatomical arm without copying its reference or calibration."""
     if arm not in ARMS:
-        raise ValueError('arm must be left or right')
+        raise ValueError('arm must be left, right, or both')
     data = _read(path)
+    if arm == 'both' and data['position'] != 'seated':
+        raise ValueError('bilateral capture is currently seated only')
     data['arm'] = arm
     _write(data, path)
     return load_settings(path)
