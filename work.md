@@ -94,7 +94,7 @@ Legend: ✅ done (merged into `main`) · 🟡 in progress or in review · ⬜ no
 | --- | --- | --- | --- | --- |
 | C1 | Mock `reps.parquet` generator + subject-wise `folds.csv` builder (locked test subset) | S | ✅ merged (PR #2) | Mock with 18 subjects; no subject in two folds |
 | C2 | RehabHub baseline: Z of DTW distance vs normal reps, score = 100 / max(Z, 1) | S | ✅ merged (PR #2) | Reproduces the saturation: many reps with Z < 1 all get 100 |
-| C3 | Scorer v1: standardise features → Ledoit-Wolf covariance → Mahalanobis distance → pooled ECDF → 0–100 | M | 🟡 in review (PR #3) | A shifted mock group scores lower than normal; ECDF of training normals ≈ uniform |
+| C3 | Scorer v1: standardise features → Ledoit-Wolf covariance → Mahalanobis distance → pooled ECDF → 0–100 | M | 🟡 in review (PR #8) | A shifted mock group scores lower than normal; ECDF of training normals ≈ uniform |
 | C4 | P3 sub-scores: per-feature ECDF for lean, elbow, hike (and rom, tempo, shape, smooth); feedback code from the worst sub-score | M | ⬜ | A lean-heavy mock rep returns feedback code "trunk lean" |
 | C5 | LOSO harness: fit on train subjects, score the held-out subject, AUROC per condition | M | ⬜ | AUROC ≈ 0.5 on shuffled labels; high on a clearly shifted mock |
 | C6 | Statistics: subject-level bootstrap CI, paired score difference, ICC(2,1), SEM, MDC | L | ⬜ | CI on a known synthetic effect covers the truth ≈ 95 % of the time |
@@ -250,7 +250,7 @@ Until G2, I build everything on `fixtures/mock_reps.parquet`. Because the schema
 
 - [x] Commit C1 + C2 on `Wilkend` (rebased on `main` after PR #1), push, open PR for Melchior's review
 - [x] Melchior reviewed and merged C1 + C2 (PR #2, 2026-11-20)
-- [ ] Melchior reviews C3 (PR #3)
+- [ ] Melchior reviews C3 (PR #8)
 - [ ] Mentor mode from C3 on: idea + hint first, code after
 - [ ] ~~C3 scorer v1~~ (done) → C4 sub-scores → C5 LOSO harness (C3–C5 make gate G3 possible)
 - [ ] Reply in the group about the angle decision (section 8, point 1)
