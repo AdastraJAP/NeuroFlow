@@ -21,7 +21,7 @@ def test_iou_hand_examples():
 
 def test_matching_is_one_to_one_best_first():
     ref = reps((0, 100))
-    pred = reps((10, 100), (0, 90))                             # both overlap ref; IoU .9 each...
+    pred = reps((10, 100), (0, 90))                             # both overlap ref (IoU 0.9 each)
     m = match_reps(pred, ref)
     assert len(m) == 1                                          # ref used once
     pred = reps((0, 100), (300, 400))
