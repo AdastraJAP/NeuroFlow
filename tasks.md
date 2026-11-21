@@ -340,6 +340,18 @@ Rep counts are right. Slow is about 1.9× normal, and rom_cap reaches about half
 
 **Next for G2:** label the three clips with B9 (`--block T_01` picks one clip from Adastra's combined file) (the window needs `sudo apt install -y libsm6 libice6`), compare boundaries, then ask Adastra to review.
 
+## B8: S3 study harness
+
+**File:** `neuroflow/segmentation/s3_study.py` · **Run:** `python -m neuroflow.segmentation.s3_study` (mocks vs truth) or `--labels DIR --frames F --rest R --rom M --angle theta_v_deg` (real clips, labels as `DIR/<block_id>_labels.csv`) · **Test:** `python -m pytest tests/test_s3_study.py`
+
+**Matching:** each predicted rep pairs with at most one reference rep, greedily by highest IoU of the [start, end] windows; a hit needs IoU ≥ 0.5 (common event-detection choice, not from our sources). Unknown boundaries never match.
+
+**Metrics:** per block: count error, hits, precision, recall, F1, mean IoU, signed start/peak/end errors. Per segmenter: count MAE, exact-count rate, off-by-one rate, pooled P/R/F1, boundary error mean / SD / median |e| / share within ±67 ms.
+
+**Mocks (truth as reference):** v1 count MAE 0, F1 1.0 on all 7 mocks; v0 F1 0.92 because it finds 0 of 10 reps on low_rom. Boundary error median |e| 10–13 ms.
+
+**Real clips:** waiting on B9 labels. With one rep per G1 clip the counts say little; boundary error is the useful number there.
+
 ## Decisions log
 
 | Date | Decision |
@@ -367,3 +379,4 @@ Rep counts are right. Slow is about 1.9× normal, and rom_cap reaches about half
 | 2026-11-21 | Reps output gains `schema_version`, `block_id`, `side` in 7willA's column order; G1 data received from Adastra on Google Drive |
 | 2026-11-22 | G2 dry run: real G1 clips segmented on `theta_v_deg` with practice-clip calibration; 1/1/1 reps |
 | 2026-11-22 | B7 compensation needs ≥ 50 % valid frames per rep; label tool gets `--block` for multi-clip frames files |
+| 2026-11-22 | B8 harness: IoU ≥ 0.5 one-to-one matching; both segmenters compared per block and pooled |

@@ -24,7 +24,7 @@ Legend: ✅ done · 🟡 in progress / blocked on a decision · ⬜ not started
 | B5 | Templates: linear-stretch mean, then DBA | M | ✅ | Mean template recovers the true shape (≈0.4°); DBA beats mean on distance to members everywhere; 13 tests (35 total). Known: DBA fits noise when timing doesn't vary. Committed `14fb690` |
 | B6 | Features: duration, time-to-peak ratio, personal-centred ROM, SPARC | M | ✅ | Each feature validated on its own, then integrated in `rep_features()`; 24 tests (59 total). Known: SPARC reads small movements as less smooth when noise is present. Committed `7260c6e` |
 | B7 | Compensation features: max lean, min elbow, max hike | M | ✅ | `rep_window_extreme` + 3 columns in `rep_features()`; new `elbow_30` / `hike` mocks; each mock moves only its own feature; 10 tests. Open: lean sign (absolute for now, ask A). Committed `0589f8e` |
-| B8 | S3 study: automatic vs manual segmentation | L | ⬜ | |
+| B8 | S3 study: automatic vs manual segmentation | L | 🟡 | Harness done (`s3_study.py`): IoU matching, count MAE, exact/off-by-one rate, P/R/F1, boundary error; 7 tests (124 total). On mocks: v1 F1 1.0 everywhere, v0 misses low_rom. Waiting on B9 labels of the real clips |
 | B9 | Manual labelling helper | S | ✅ | `label_tool.py`: labels on the capture clock, `load_labels()` feeds `segment.validate` for B8; 8 tests. GUI not tried yet (WSL needs `libsm6 libice6`). Committed `13df5fe` |
 
 ## Follow-ups from A and C
