@@ -336,9 +336,9 @@ So a capped or low-range rep will look less smooth from noise alone. This matter
 
 Rep counts are right. Slow is about 1.9× normal, and rom_cap reaches about half the personal range, as expected. Real reps are much slower than the mocks (7 s vs 2 s) and SPARC is more negative (−4 to −6 vs −2.7).
 
-**Compensation on real data:** trunk lean and hike are NaN by design (no hips, no hike definition). Elbow is NaN on 95–100 % of frames (wrist out of frame or low visibility), so `min_elbow_deg` comes from 13 frames (T_01), 0 (T_02, NaN) and 1 (T_05). **Open:** B7 should probably require a minimum share of valid frames in the rep before reporting a value.
+**Compensation on real data:** trunk lean and hike are NaN by design (no hips, no hike definition). Elbow is NaN on 95–100 % of frames (wrist out of frame or low visibility), so `min_elbow_deg` comes from 13 frames (T_01), 0 (T_02, NaN) and 1 (T_05). **Fixed (2026-11-22):** B7 now needs at least 50 % of the rep's frames valid (`COMP_MIN_VALID_FRAC`, our choice, to tune), so all three clips give NaN elbow instead of 13-frame or 1-frame values.
 
-**Next for G2:** label the three clips with B9 (the window needs `sudo apt install -y libsm6 libice6`), compare boundaries, then ask Adastra to review.
+**Next for G2:** label the three clips with B9 (`--block T_01` picks one clip from Adastra's combined file) (the window needs `sudo apt install -y libsm6 libice6`), compare boundaries, then ask Adastra to review.
 
 ## Decisions log
 
@@ -366,3 +366,4 @@ Rep counts are right. Slow is about 1.9× normal, and rom_cap reaches about half
 | 2026-11-21 | `angle_col` added and recorded in reps; thresholds unchanged after checking on A's practice clips |
 | 2026-11-21 | Reps output gains `schema_version`, `block_id`, `side` in 7willA's column order; G1 data received from Adastra on Google Drive |
 | 2026-11-22 | G2 dry run: real G1 clips segmented on `theta_v_deg` with practice-clip calibration; 1/1/1 reps |
+| 2026-11-22 | B7 compensation needs ≥ 50 % valid frames per rep; label tool gets `--block` for multi-clip frames files |
