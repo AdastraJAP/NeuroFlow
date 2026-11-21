@@ -9,6 +9,9 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
+# Local research recordings and derived personal frame data
+/data/
+
 # Project reference documents (kept local)
 Neuro-Flow Implementation Plan Tasks, Workflow and Member Prompts.md
 Neuro-Flow Research Brief Evidence, Datasets and Architecture.md
