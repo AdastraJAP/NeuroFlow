@@ -68,3 +68,74 @@ def test_mocks_reproduce_b3_results():
     assert v1["count_mae"] == 0 and v1["f1"] == 1.0
     low = per_block.set_index(["segmenter", "block_id"]).loc[("v0_fixed", "low_rom")]
     assert low["n_pred"] == 0 and low["recall"] == 0
+
+
+# ---- real clips: labels must match the clip and its clock (Adastra, PR #3 review) ----
+import os  # noqa: E402
+
+from neuroflow.segmentation.label_tool import Labels, save_labels  # noqa: E402
+from neuroflow.segmentation.s3_study import check_labels, real_blocks  # noqa: E402
+from neuroflow.segmentation.segment import calibration_refs  # noqa: E402
+
+FX = os.path.join(os.path.dirname(__file__), "..", "fixtures")
+
+
+def _clip(variant):
+    frames = pd.read_parquet(os.path.join(FX, f"mock_frames_{variant}.parquet"))
+    truth = pd.read_csv(os.path.join(FX, f"mock_frames_{variant}_truth.csv"))
+    return frames, truth
+
+
+def _write_labels(folder, frames, truth, **override):
+    """B9-style labels at the truth times; override changes the identity/clock fields."""
+    lab = Labels()
+    for _, r in truth.iterrows():
+        for c in ("t_start_ms", "t_peak_ms", "t_end_ms"):
+            lab.mark(r[c])
+    first = frames.iloc[0]
+    meta = dict(subject_id=first["subject_id"], session_id=first["session_id"],
+                block_id=first["block_id"], labeler="test", time_source="t_capture_ms")
+    meta.update(override)
+    save_labels(lab.to_frame(**meta), os.path.join(folder, f"{first['block_id']}_labels.csv"))
+
+
+def _run_real(frames, folder, **kw):
+    rest, rom = calibration_refs()[frames["subject_id"].iloc[0]]
+    return study(real_blocks(frames, str(folder), rest, rom, "theta_ht_deg", **kw))
+
+
+def test_real_blocks_with_matching_labels(tmp_path):
+    frames, truth = _clip("normal")
+    _write_labels(tmp_path, frames, truth)
+    per_block, summary = _run_real(frames, tmp_path)
+    assert summary.set_index("segmenter").loc["v1_rom", "f1"] == 1.0
+
+
+@pytest.mark.parametrize("field, value, match", [
+    ("time_source", "video_fps", "time_source must be t_capture_ms"),
+    ("block_id", "slow", "block_id"),
+    ("subject_id", "mock99", "subject_id"),
+    ("session_id", "s9", "session_id"),
+])
+def test_mismatched_labels_are_rejected(tmp_path, field, value, match):
+    frames, truth = _clip("normal")
+    _write_labels(tmp_path, frames, truth, **{field: value})
+    with pytest.raises(ValueError, match=match):
+        _run_real(frames, tmp_path)
+
+
+def test_missing_label_files_are_reported(tmp_path, capsys):
+    a, ta = _clip("normal")
+    b, _ = _clip("slow")
+    both = pd.concat([a, b], ignore_index=True)
+    _write_labels(tmp_path, a, ta)                      # no labels for "slow"
+    with pytest.raises(FileNotFoundError, match=r"1 of 2 expected label files are missing.*slow_labels"):
+        _run_real(both, tmp_path)
+    per_block, _ = _run_real(both, tmp_path, allow_missing=True)
+    assert set(per_block["block_id"]) == {"normal"}
+    assert "slow_labels.csv" in capsys.readouterr().out
+
+
+def test_check_labels_accepts_an_empty_labels_file():
+    frames, _ = _clip("normal")
+    check_labels(Labels().to_frame(), frames, "empty.csv")

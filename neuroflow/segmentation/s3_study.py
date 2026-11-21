@@ -136,16 +136,49 @@ def mock_blocks():
         yield "v1_rom", v, segment_reps(frames, rom, rest), truth
 
 
-def real_blocks(frames, labels_dir, rest_ref, rom_ref, angle_col):
-    """Both segmenters on each real clip that has a B9 labels file <block_id>_labels.csv."""
+def check_labels(ref, frames, path):
+    """
+    A labels table may only be compared with the clip it was made on, on the same
+    clock: time_source must be t_capture_ms (not video_fps), and block_id,
+    subject_id and session_id must match the frames of that block. Raises otherwise.
+    A file with 0 reps has no rows to check and passes.
+    """
+    bad_clock = sorted(set(ref["time_source"].dropna()) - {"t_capture_ms"})
+    if bad_clock or ref["time_source"].isna().any():
+        raise ValueError(f"{path}: time_source must be t_capture_ms, got "
+                         f"{bad_clock or ['(missing)']}; re-label with --frames")
+    for col in ("block_id", "subject_id", "session_id"):
+        want = frames[col].astype(str).unique()
+        if len(want) != 1:
+            raise ValueError(f"frames for {path} hold several {col} values {sorted(want)}")
+        got = sorted(set(ref[col].astype(str)) - {want[0]})
+        if got:
+            raise ValueError(f"{path}: {col} {got} doesn't match the frames ({want[0]})")
+
+
+def real_blocks(frames, labels_dir, rest_ref, rom_ref, angle_col, allow_missing=False):
+    """
+    Both segmenters on each real clip, against its B9 labels file
+    <labels_dir>/<block_id>_labels.csv (checked with check_labels).
+    Every block in frames is expected to have a labels file. Missing ones are listed
+    all at once and raise, unless allow_missing=True, which prints the list and
+    leaves those blocks out.
+    """
     from neuroflow.segmentation.label_tool import load_labels
     from neuroflow.segmentation.segment import segment_fixed, segment_reps
-    for block, f in frames.groupby("block_id"):
-        path = os.path.join(labels_dir, f"{block}_labels.csv")
-        if not os.path.exists(path):
-            print(f"  (no labels for {block}, skipped)")
+    blocks = list(frames.groupby("block_id"))
+    paths = {b: os.path.join(labels_dir, f"{b}_labels.csv") for b, _ in blocks}
+    missing = [paths[b] for b, _ in blocks if not os.path.exists(paths[b])]
+    if missing:
+        msg = f"{len(missing)} of {len(blocks)} expected label files are missing: {missing}"
+        if not allow_missing:
+            raise FileNotFoundError(msg)
+        print(f"WARNING: {msg}; those blocks are left out")
+    for block, f in blocks:
+        if not os.path.exists(paths[block]):
             continue
-        ref = load_labels(path)
+        ref = load_labels(paths[block])
+        check_labels(ref, f, paths[block])
         yield "v0_fixed", block, segment_fixed(f, angle_col=angle_col), ref
         yield "v1_rom", block, segment_reps(f, rom_ref, rest_ref, angle_col=angle_col), ref
 
@@ -164,6 +197,8 @@ def main():
     p.add_argument("--rest", type=float, help="rest_ref from a separate calibration block")
     p.add_argument("--rom", type=float, help="rom_ref from a separate calibration block")
     p.add_argument("--angle", default="theta_ht_deg")
+    p.add_argument("--allow-missing", action="store_true",
+                   help="leave out blocks without a labels file (listed) instead of stopping")
     a = p.parse_args()
 
     # Hand check: IoU of [0, 10] and [5, 15] is 5 / 15.
@@ -172,7 +207,7 @@ def main():
     if a.labels:
         frames = pd.read_parquet(a.frames)
         print(f"S3 study on real clips ({a.angle}, rest {a.rest}, rom {a.rom}, IoU >= {MATCH_IOU})\n")
-        _print(*study(real_blocks(frames, a.labels, a.rest, a.rom, a.angle)))
+        _print(*study(real_blocks(frames, a.labels, a.rest, a.rom, a.angle, a.allow_missing)))
     else:
         print(f"S3 study on the mocks vs truth (IoU >= {MATCH_IOU}, tolerance +-{TOLERANCE_MS:.0f} ms)\n")
         _print(*study(mock_blocks()))

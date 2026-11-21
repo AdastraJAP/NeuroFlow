@@ -136,7 +136,9 @@ def load_labels(path, complete_only=True):
     order and not overlapping. complete_only drops reps with a missing point.
     Returns columns in LABEL_COLUMNS order, rep_idx renumbered from 0.
     """
-    df = pd.read_csv(path)
+    # ids as text, so e.g. session "001" isn't read back as the number 1
+    df = pd.read_csv(path, dtype={c: str for c in ("subject_id", "session_id", "block_id",
+                                                   "labeler", "time_source")})
     missing = [c for c in LABEL_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError(f"{path}: missing columns {missing}")
