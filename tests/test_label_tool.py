@@ -162,3 +162,69 @@ def test_load_rejects_infinite_non_numeric_and_unordered_partial(tmp_path):
         load_labels(write([(100, 100, 300)]))               # equal is not "after"
     ok = load_labels(write([(100, 200, 300), (400, 500, np.nan)]), complete_only=False)
     assert len(ok) == 2
+
+
+# ---- points outside the clip (G1: the clip ends before the arm is back at rest) ----
+
+def test_end_outside_clip_round_trip(tmp_path):
+    lab = Labels()
+    for t in (100, 200, 300, 400, 500):
+        lab.mark(t)
+    assert lab.mark_outside() == "end"
+    with pytest.raises(ValueError, match="no rep can follow"):
+        lab.mark(600)
+    df = lab.to_frame(block_id="T_05")
+    assert list(df["outside_clip"]) == ["", "end"] and np.isnan(df["t_end_ms"].iloc[1])
+    p = tmp_path / "l.csv"
+    save_labels(df, p)
+    back = load_labels(p)                                    # complete_only keeps the flagged rep
+    assert len(back) == 2 and back["outside_clip"].iloc[1] == "end"
+
+
+def test_start_outside_clip_only_for_first_rep():
+    lab = Labels()
+    assert lab.mark_outside() == "start"
+    lab.mark(200)                                            # peak
+    lab.mark(300)                                            # end
+    with pytest.raises(ValueError, match="only the first rep's start"):
+        lab.mark_outside()
+    assert list(lab.to_frame()["outside_clip"]) == ["start"]
+    other = Labels()
+    other.mark(100)
+    with pytest.raises(ValueError, match="peak can't be outside"):
+        other.mark_outside()
+
+
+def test_unfinished_rep_is_not_outside_clip(tmp_path):
+    lab = Labels()
+    for t in (100, 200):
+        lab.mark(t)                                          # end simply not marked yet
+    df = lab.to_frame()
+    assert df["outside_clip"].iloc[0] == ""
+    p = tmp_path / "l.csv"
+    save_labels(df, p)
+    assert len(load_labels(p)) == 0                          # dropped: not complete
+    assert len(load_labels(p, complete_only=False)) == 1
+
+
+def test_load_rejects_bad_outside_flags(tmp_path):
+    def write(rows):
+        p = tmp_path / "bad.csv"
+        pd.DataFrame([{c: "" for c in LABEL_COLUMNS} | dict(zip(
+            ["rep_idx", "t_start_ms", "t_peak_ms", "t_end_ms", "outside_clip"], (i, *r)))
+            for i, r in enumerate(rows)]).to_csv(p, index=False)
+        return p
+    with pytest.raises(ValueError, match="has a time"):
+        load_labels(write([(100, 200, 300, "end")]))
+    with pytest.raises(ValueError, match="last rep's end"):
+        load_labels(write([(100, 200, np.nan, "end"), (400, 500, 600, "")]))
+    with pytest.raises(ValueError, match="must be"):
+        load_labels(write([(100, 200, 300, "peak")]))
+
+
+def test_old_files_without_the_column_still_load(tmp_path):
+    p = tmp_path / "old.csv"
+    pd.DataFrame([{"rep_idx": 0, "t_start_ms": 100, "t_peak_ms": 200, "t_end_ms": 300,
+                   "subject_id": "P001", "session_id": "S001", "block_id": "T_01",
+                   "labeler": "x", "time_source": "t_capture_ms"}]).to_csv(p, index=False)
+    assert load_labels(p)["outside_clip"].iloc[0] == ""

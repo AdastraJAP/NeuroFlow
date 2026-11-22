@@ -9,6 +9,9 @@ Labelling rule (team decision 2026-11-18, same as B1/B2): start and end are
 where the arm passes **rest + 5 % of that rep's range** on the way up and on the
 way down (about 4 deg into a 80 deg rep), NOT the first visible movement.
 The peak is the highest point. If you can't tell, leave the rep out rather than guess.
+If the clip starts after the first rep's start, or ends before the last rep's end
+(the arm never gets back to rest + 5 %), press x for that point: it is saved as
+NaN with outside_clip = "start" / "end", and the rep still counts in B8.
 
 Times: if the clip's frames.parquet is given, video frame i gets that file's
 t_capture_ms for frame_idx i (the capture clock, the same clock the segmenter
@@ -24,6 +27,7 @@ Run:
 
 Keys:  a / d  back / forward 1 frame     j / l  back / forward 10 frames
        space  play / pause               m      mark the next point (start -> peak -> end)
+       x      the next point is outside the clip (first start / last end only)
        u      undo the last mark         s      save
        q / Esc / Enter, or close the window   save and quit
 Mouse: click the timeline strip at the bottom to jump to that moment.
@@ -37,7 +41,10 @@ import pandas as pd
 
 KINDS = ("start", "peak", "end")
 LABEL_COLUMNS = ["rep_idx", "t_start_ms", "t_peak_ms", "t_end_ms",
-                 "subject_id", "session_id", "block_id", "labeler", "time_source"]
+                 "subject_id", "session_id", "block_id", "labeler", "time_source",
+                 "outside_clip"]
+# outside_clip: "" or "start" / "end" = that point is outside the clip (saved as NaN).
+# Older files without the column are read as "".
 
 
 # ---- 1. label bookkeeping (no GUI, fully testable) ----
@@ -51,15 +58,37 @@ class Labels:
     def next_kind(self):
         return KINDS[len(self.marks) % 3]
 
+    def _last_time(self):
+        done = [m for m in self.marks if not np.isnan(m)]
+        return done[-1] if done else None
+
+    def _closed(self):
+        if len(self.marks) >= 3 and len(self.marks) % 3 == 0 and np.isnan(self.marks[-1]):
+            raise ValueError("the last rep's end is outside the clip; no rep can follow")
+
     def mark(self, t_ms):
         """Add the next mark; it must come after the previous one. Returns its kind."""
         if not np.isfinite(t_ms):
             raise ValueError(f"{self.next_kind()} time {t_ms} is not a finite number")
-        if self.marks and t_ms <= self.marks[-1]:
+        self._closed()
+        last = self._last_time()
+        if last is not None and t_ms <= last:
             raise ValueError(f"{self.next_kind()} at {t_ms:.0f} ms is not after the "
-                             f"previous mark at {self.marks[-1]:.0f} ms")
+                             f"previous mark at {last:.0f} ms")
         kind = self.next_kind()
         self.marks.append(float(t_ms))
+        return kind
+
+    def mark_outside(self):
+        """The next point is outside the clip: only the first rep's start, or an end
+        (which then has to be the last rep). Saved as NaN. Returns its kind."""
+        kind = self.next_kind()
+        self._closed()
+        if kind == "peak":
+            raise ValueError("a peak can't be outside the clip; leave the rep out instead")
+        if kind == "start" and self.marks:
+            raise ValueError("only the first rep's start can be outside the clip")
+        self.marks.append(np.nan)
         return kind
 
     def undo(self):
@@ -75,9 +104,12 @@ class Labels:
         rows = []
         for i in range(0, len(self.marks), 3):
             m = self.marks[i:i + 3] + [np.nan] * (3 - len(self.marks[i:i + 3]))
+            n = len(self.marks[i:i + 3])                    # points actually marked
+            out = [k for k, v in zip(("start", "peak", "end")[:n], m[:n]) if np.isnan(v)]
             rows.append({"rep_idx": i // 3, "t_start_ms": m[0], "t_peak_ms": m[1], "t_end_ms": m[2],
                          "subject_id": subject_id, "session_id": session_id, "block_id": block_id,
-                         "labeler": labeler, "time_source": time_source})
+                         "labeler": labeler, "time_source": time_source,
+                         "outside_clip": out[0] if out else ""})
         return pd.DataFrame(rows, columns=LABEL_COLUMNS)
 
 
@@ -142,7 +174,10 @@ def load_labels(path, complete_only=True):
     """
     # ids as text, so e.g. session "001" isn't read back as the number 1
     df = pd.read_csv(path, dtype={c: str for c in ("subject_id", "session_id", "block_id",
-                                                   "labeler", "time_source")})
+                                                   "labeler", "time_source", "outside_clip")})
+    if "outside_clip" not in df.columns:
+        df["outside_clip"] = ""                          # files from before the column
+    df["outside_clip"] = df["outside_clip"].fillna("")
     missing = [c for c in LABEL_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError(f"{path}: missing columns {missing}")
@@ -161,14 +196,30 @@ def load_labels(path, complete_only=True):
         marked = row[~np.isnan(row)]
         if (np.diff(marked) <= 0).any():
             raise ValueError(f"{path}: reps [{df['rep_idx'].iloc[i]}] are not start < peak < end")
+    flag = df["outside_clip"]
+    bad_flag = sorted(set(flag) - {"", "start", "end"})
+    if bad_flag:
+        raise ValueError(f"{path}: outside_clip must be '', 'start' or 'end', got {bad_flag}")
+    col = {"start": "t_start_ms", "end": "t_end_ms"}
+    for f, c in col.items():
+        if df.loc[flag == f, c].notna().any():
+            raise ValueError(f"{path}: outside_clip = {f!r} but {c} has a time")
+    def complete(d):
+        """Reps whose three points are each a time or flagged as outside the clip."""
+        k = d[times].notna()
+        k.loc[d["outside_clip"] == "start", "t_start_ms"] = True
+        k.loc[d["outside_clip"] == "end", "t_end_ms"] = True
+        return k.all(axis=1)
+
     if complete_only:
-        df = df.dropna(subset=["t_start_ms", "t_peak_ms", "t_end_ms"])
-    df = df.sort_values("t_start_ms").reset_index(drop=True)
-    done = df.dropna(subset=["t_start_ms", "t_peak_ms", "t_end_ms"])
-    bad = done[~((done["t_start_ms"] < done["t_peak_ms"]) & (done["t_peak_ms"] < done["t_end_ms"]))]
-    if len(bad):
-        raise ValueError(f"{path}: reps {bad['rep_idx'].tolist()} are not start < peak < end")
-    if (done["t_start_ms"].to_numpy()[1:] <= done["t_end_ms"].to_numpy()[:-1]).any():
+        df = df[complete(df)]
+    order = df["t_start_ms"].fillna(df["t_peak_ms"])
+    df = df.assign(_o=order).sort_values("_o").drop(columns="_o").reset_index(drop=True)
+    if (df["outside_clip"] == "start").iloc[1:].any() or (df["outside_clip"] == "end").iloc[:-1].any():
+        raise ValueError(f"{path}: only the first rep's start / the last rep's end can be outside the clip")
+    done = df[complete(df)]
+    st, en = done["t_start_ms"].to_numpy()[1:], done["t_end_ms"].to_numpy()[:-1]
+    if (st <= en).any():                                 # NaN (outside the clip) compares False
         raise ValueError(f"{path}: reps overlap")
     df["rep_idx"] = np.arange(len(df))
     return df
@@ -193,6 +244,8 @@ def _draw_strip(width, t, labels, cur, trace=None):
         if len(pts) > 1:
             cv2.polylines(strip, [np.array(pts, np.int32)], False, (170, 170, 170), 1)
     for i, tm in enumerate(labels.marks):
+        if np.isnan(tm):
+            continue                                 # outside the clip: nothing to draw
         cv2.line(strip, (x_of(tm), 0), (x_of(tm), STRIP_H), COLOURS[KINDS[i % 3]], 2)
     if np.isfinite(t[cur]):
         cv2.line(strip, (x_of(t[cur]), 0), (x_of(t[cur]), STRIP_H), (255, 255, 255), 1)
@@ -225,10 +278,13 @@ def run_gui(clip, out, frames_path=None, labeler="", angle_col="theta_ht_deg", b
 
     labels = Labels()
     if os.path.exists(out):   # resume an earlier session on this clip
-        for _, r in pd.read_csv(out).iterrows():
-            for c in ("t_start_ms", "t_peak_ms", "t_end_ms"):
+        prev = load_labels(out, complete_only=False)
+        for _, r in prev.iterrows():
+            for c, k in (("t_start_ms", "start"), ("t_peak_ms", "peak"), ("t_end_ms", "end")):
                 if np.isfinite(r[c]):
                     labels.mark(r[c])
+                elif r["outside_clip"] == k:
+                    labels.mark_outside()
         print(f"resumed {len(labels.marks)} marks from {out}")
 
     QUIT_KEYS = (ord("q"), ord("Q"), 27, 13, 10)  # q, Esc, Enter (CR / LF)
@@ -250,7 +306,8 @@ def run_gui(clip, out, frames_path=None, labeler="", angle_col="theta_ht_deg", b
     while True:
         cur = state["cur"]
         img = video[cur].copy()
-        info = f"frame {cur}/{len(video) - 1}  t={t[cur]:.0f} ms  next: {labels.next_kind()}  {msg}"
+        ang = f"  {angle_col}={trace[cur]:.1f}" if trace is not None and np.isfinite(trace[cur]) else ""
+        info = f"frame {cur}/{len(video) - 1}  t={t[cur]:.0f} ms{ang}  next: {labels.next_kind()}  {msg}"
         cv2.putText(img, info, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
         cv2.imshow("label", np.vstack([img, _draw_strip(w, t, labels, cur, trace)]))
         key = cv2.waitKey(int(1000 / (fps or 30)) if state["play"] else 30) & 0xFF
@@ -264,6 +321,11 @@ def run_gui(clip, out, frames_path=None, labeler="", angle_col="theta_ht_deg", b
         elif key == ord("m"):
             try:
                 msg = f"marked {labels.mark(t[cur])}"
+            except ValueError as e:
+                msg = str(e)
+        elif key == ord("x"):
+            try:
+                msg = f"{labels.mark_outside()} outside the clip"
             except ValueError as e:
                 msg = str(e)
         elif key == ord("u"):
