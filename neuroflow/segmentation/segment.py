@@ -16,6 +16,10 @@ Two steps:
   2. Boundaries. From each threshold crossing, walk outward until the smoothed
      angle drops to rest + BOUNDARY_FRAC * range, then interpolate linearly
      between the two frames on either side of that level.
+     The rest level comes only from where the arm is still (still_rest). If
+     the clip ends while the arm is still coming down, the end uses the rest
+     before the rep; if that level isn't reached before the clip ends, the end
+     is unknown (NaN): the rep still counts, its end is not guessed.
 
 Methods:
     "pct_range"  the definition above (default)
@@ -54,6 +58,9 @@ T_LOW = 20.0            # deg, leave a rep below this
 SMOOTH_WINDOW_S = 0.25  # Savitzky-Golay window (A5 default); swap for A's smooth_savgol later
 SMOOTH_ORDER = 2
 MAX_SEARCH_S = 1.5      # how far before/after a crossing to look for rest
+REST_STABLE_S = 0.5     # rest must be still over this long (the part farthest from the rep)
+REST_MAX_SLOPE = 3.0    # deg/s; faster than this the arm is still moving, not at rest
+                        # (G1 clips end while still falling at about 10 deg/s)
 TOLERANCE_MS = 67.0     # golden criterion: +-2 frames at 30 fps on start and end
 METHODS = ("pct_range", "crossing")
 
@@ -151,11 +158,35 @@ def detect(theta_s, t_high=T_HIGH, t_low=T_LOW):
     return reps
 
 
-def rest_level(theta_s, lo, hi, t_low=T_LOW):
-    """Median smoothed angle of the frames in [lo, hi) that are below t_low (the rest)."""
-    seg = theta_s[lo:hi]
-    seg = seg[seg < t_low]
-    return float(np.median(seg)) if len(seg) >= 3 else None
+def still_rest(theta_s, t_ms, lo, hi, t_low=T_LOW, side="after"):
+    """
+    Rest level next to a rep, from where the arm is actually still: the
+    REST_STABLE_S stretch of rest frames (below t_low) in [lo, hi) that is
+    nearest to the rep and whose slope is at most REST_MAX_SLOPE. side="after"
+    scans away from the rep forwards ([lo, hi) starts at the rep's end), "before"
+    backwards. Returns the median of that stretch, or None if there is none
+    (e.g. the clip ends while the arm is still coming down).
+    """
+    idx = np.arange(lo, hi)
+    idx = idx[theta_s[lo:hi] < t_low]
+    if len(idx) < 3:
+        return None
+    if side == "before":
+        idx = idx[::-1]
+    span = REST_STABLE_S * 1000.0
+    dt = np.median(np.diff(t_ms))
+    tt = t_ms[idx]
+    for k in range(len(idx)):
+        win = np.abs(tt - tt[k]) <= span
+        win &= (tt >= tt[k]) if side == "after" else (tt <= tt[k])
+        seg = idx[win]
+        if len(seg) < 3 or abs(t_ms[seg[-1]] - t_ms[seg[0]]) < span - 1.5 * dt:
+            break                                   # ran out of frames
+        if np.any(np.abs(np.diff(seg)) != 1):
+            continue                                # stretch crosses a non-rest frame
+        if abs(np.polyfit(t_ms[seg] / 1000.0, theta_s[seg], 1)[0]) <= REST_MAX_SLOPE:
+            return float(np.median(theta_s[seg]))
+    return None
 
 
 def cross_time(t_ms, x, i_a, i_b, level):
@@ -185,11 +216,17 @@ def boundaries(theta_s, t_ms, reps, method="pct_range", frac=BOUNDARY_FRAC, t_lo
         hi = min(next_up, i_down + max_n)
 
         peak = theta_s[i_peak]
-        rest_s = rest_level(theta_s, lo, i_up, t_low)
-        rest_e = rest_level(theta_s, i_down, hi, t_low)
-        if rest_s is None or rest_e is None:
-            out.append((np.nan, t_ms[i_peak], np.nan))  # no rest seen: boundary unknown
+        # Rest only from where the arm is actually still, looking as far as the
+        # neighbouring rep (or the clip edge). If one side never settles (clip
+        # ends while the arm is still coming down), use the other side's rest;
+        # if neither does, the boundaries are unknown.
+        rest_s = still_rest(theta_s, t_ms, prev_end, i_up, t_low, side="before")
+        rest_e = still_rest(theta_s, t_ms, i_down, next_up, t_low, side="after")
+        if rest_s is None and rest_e is None:
+            out.append((np.nan, t_ms[i_peak], np.nan))  # no still rest seen: unknown
             continue
+        rest_s = rest_e if rest_s is None else rest_s
+        rest_e = rest_s if rest_e is None else rest_e
 
         lvl_s = rest_s + frac * (peak - rest_s)
         i = i_up

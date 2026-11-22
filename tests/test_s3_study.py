@@ -157,3 +157,26 @@ def test_labels_at_the_clip_edges_are_accepted(tmp_path):
     edge.loc[len(edge) - 1, "t_end_ms"] = frames["t_capture_ms"].max()   # like T_02's end
     _write_labels(tmp_path, frames, edge)
     _run_real(frames, tmp_path)
+
+
+# ---- unknown boundaries (clip ends before the arm is at rest) ----
+
+def test_unknown_end_counts_with_clip_but_has_no_error():
+    pred = reps((100, 900))
+    pred.loc[0, "t_end_ms"] = np.nan                       # segmenter: end not in the clip
+    ref = reps((120, 950))
+    s, e = block_metrics(pred, ref, clip=(0, 1000))
+    assert s["hits"] == 1 and s["count_err"] == 0
+    assert e["err_start_ms"].iloc[0] == -20 and np.isnan(e["err_end_ms"].iloc[0])
+    s0, _ = block_metrics(pred, ref)                       # without the clip: can't match
+    assert s0["hits"] == 0
+
+
+def test_summary_splits_start_and_end():
+    pred = reps((100, 900), (2000, 2900))
+    pred.loc[1, "t_end_ms"] = np.nan
+    ref = reps((110, 940), (2030, 2950))
+    _, summary = study([("a", "b", pred, ref, (0, 3000))])
+    r = summary.iloc[0]
+    assert r["starts_known"] == "2/2" and r["ends_known"] == "1/2"
+    assert r["start_err_median_abs_ms"] == 20 and r["end_err_median_abs_ms"] == 40

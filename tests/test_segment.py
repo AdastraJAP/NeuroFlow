@@ -187,3 +187,30 @@ def test_empty_reps_without_angle_must_name_it():
     with pytest.raises(ValueError, match="pass angle_col"):
         rep_features(v4, bare, rest, rom)
     assert len(rep_features(v4, bare, rest, rom, angle_col="theta_v_deg")) == 0
+
+
+# ---- end rest must be still (G1 clips end while the arm is still coming down) ----
+
+def test_end_uses_rest_before_rep_when_clip_ends_while_falling():
+    frames, truth, rest, rom = _load("normal")
+    last = truth.iloc[-1]
+    # cut the clip on the last rep's way down: below the closing threshold (15 %)
+    # but above the 5 % end level, like the G1 clips
+    f = frames.sort_values("t_capture_ms")
+    t, x = f["t_capture_ms"].to_numpy(float), f["theta_ht_deg"].to_numpy(float)
+    after_peak = (t > last["t_peak_ms"]) & (x < rest + 0.10 * rom)
+    cut = t[after_peak][0]
+    reps = segment_reps(f[f["t_capture_ms"] <= cut], rom, rest)
+    assert len(reps) == len(truth)                          # the cut rep still counts
+    assert np.isnan(reps["t_end_ms"].iloc[-1])              # its end is not guessed
+    assert reps["t_end_ms"].iloc[:-1].notna().all()         # the others keep theirs
+    assert abs(reps["t_start_ms"].iloc[-1] - last["t_start_ms"]) <= TOLERANCE_MS
+
+
+def test_still_rest_ignores_a_falling_tail():
+    from neuroflow.segmentation.segment import still_rest
+    t = np.arange(0, 2000, 33.0)
+    falling = 25 - 10 * t / 1000                            # -10 deg/s, like G1's clip ends
+    assert still_rest(falling, t, 0, len(t), t_low=30, side="after") is None
+    flat = np.r_[falling[t < 1000], np.full((t >= 1000).sum(), 15.0)]
+    assert still_rest(flat, t, 0, len(t), t_low=30, side="after") == pytest.approx(15.0, abs=0.5)

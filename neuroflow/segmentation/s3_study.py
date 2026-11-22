@@ -6,13 +6,16 @@ the truth files on the mocks) block by block, then pools the blocks.
 
 Matching: each predicted rep is paired with at most one reference rep, greedily
 by highest IoU of their [t_start, t_end] windows; a pair counts as a hit when
-IoU >= MATCH_IOU. Reps with an unknown boundary can't be matched.
+IoU >= MATCH_IOU. An unknown boundary (NaN: the clip starts or ends before
+the arm is at rest) is set to the clip's edge for matching only, so the rep
+still counts; its timing error is not computed.
 
 Per block:  n_pred, n_ref, count_err = n_pred - n_ref, hits, precision, recall,
             F1, mean IoU of hits, signed start/end errors of hits (pred - ref, ms).
 Summary:    count MAE, exact-count rate, off-by-one rate (|count_err| == 1),
             pooled precision / recall / F1, boundary error (mean, SD, median |e|,
-            share within +-TOLERANCE_MS), per segmenter.
+            share within +-TOLERANCE_MS) over boundaries known on both sides, also
+            split into start and end, and how many were known; per segmenter.
 
 MATCH_IOU = 0.5 is a common choice in event detection, not a value from our
 sources; report sensitivity if results sit near it.
@@ -48,12 +51,31 @@ def interval_iou(a_start, a_end, b_start, b_end):
     return inter / (max(a_end, b_end) - min(a_start, b_start))
 
 
-def match_reps(pred, ref, min_iou=MATCH_IOU):
-    """One-to-one matches as a list of (pred_row, ref_row, iou), best IoU first."""
+def _edges(reps, clip):
+    """(starts, ends) with unknown boundaries set to the clip edges (if clip given)."""
+    if len(reps) == 0:
+        return np.empty(0), np.empty(0)
+    s = reps["t_start_ms"].to_numpy(dtype=float)
+    e = reps["t_end_ms"].to_numpy(dtype=float)
+    if clip is not None:
+        s = np.where(np.isnan(s), clip[0], s)
+        e = np.where(np.isnan(e), clip[1], e)
+    return s, e
+
+
+def match_reps(pred, ref, min_iou=MATCH_IOU, clip=None):
+    """
+    One-to-one matches as a list of (pred_row, ref_row, iou), best IoU first.
+    clip = (first, last) capture time of the block: unknown boundaries count as
+    the clip edge for matching. Without clip, a rep with an unknown boundary
+    can't be matched.
+    """
+    ps, pe = _edges(pred, clip)
+    rs, re_ = _edges(ref, clip)
     pairs = []
-    for i, p in enumerate(pred.itertuples()):
-        for j, r in enumerate(ref.itertuples()):
-            iou = interval_iou(p.t_start_ms, p.t_end_ms, r.t_start_ms, r.t_end_ms)
+    for i in range(len(pred)):
+        for j in range(len(ref)):
+            iou = interval_iou(ps[i], pe[i], rs[j], re_[j])
             if not np.isnan(iou) and iou >= min_iou:
                 pairs.append((iou, i, j))
     used_p, used_r, out = set(), set(), []
@@ -74,9 +96,10 @@ def _prf(hits, n_pred, n_ref):
     return precision, recall, f1
 
 
-def block_metrics(pred, ref, min_iou=MATCH_IOU):
-    """(summary dict, per-hit errors DataFrame) for one block."""
-    m = match_reps(pred, ref, min_iou)
+def block_metrics(pred, ref, min_iou=MATCH_IOU, clip=None):
+    """(summary dict, per-hit errors DataFrame) for one block. Errors stay NaN
+    where a boundary is unknown on either side."""
+    m = match_reps(pred, ref, min_iou, clip)
     errs = pd.DataFrame([{
         "iou": iou,
         "err_start_ms": pred["t_start_ms"].iloc[i] - ref["t_start_ms"].iloc[j],
@@ -93,12 +116,12 @@ def block_metrics(pred, ref, min_iou=MATCH_IOU):
 
 def study(blocks, min_iou=MATCH_IOU, tol_ms=TOLERANCE_MS):
     """
-    blocks: iterable of (segmenter, block_id, pred_reps, ref_reps).
+    blocks: iterable of (segmenter, block_id, pred_reps, ref_reps[, (clip_first_ms, clip_last_ms)]).
     Returns (per-block table, summary table with one row per segmenter).
     """
     rows, all_errs = [], []
-    for seg, block, pred, ref in blocks:
-        s, e = block_metrics(pred, ref, min_iou)
+    for seg, block, pred, ref, *clip in blocks:
+        s, e = block_metrics(pred, ref, min_iou, clip[0] if clip else None)
         rows.append({"segmenter": seg, "block_id": block, **s})
         all_errs.append(e.assign(segmenter=seg, block_id=block))
     per_block = pd.DataFrame(rows)
@@ -108,6 +131,7 @@ def study(blocks, min_iou=MATCH_IOU, tol_ms=TOLERANCE_MS):
     for seg, b in per_block.groupby("segmenter", sort=False):
         e = errs[errs["segmenter"] == seg]
         bound = pd.concat([e["err_start_ms"], e["err_end_ms"]]).dropna().to_numpy()
+        st, en = e["err_start_ms"].dropna().to_numpy(), e["err_end_ms"].dropna().to_numpy()
         precision, recall, f1 = _prf(b["hits"].sum(), b["n_pred"].sum(), b["n_ref"].sum())
         summary.append({
             "segmenter": seg, "blocks": len(b),
@@ -119,6 +143,10 @@ def study(blocks, min_iou=MATCH_IOU, tol_ms=TOLERANCE_MS):
             "bound_err_sd_ms": bound.std(ddof=1) if len(bound) > 1 else np.nan,
             "bound_err_median_abs_ms": np.median(np.abs(bound)) if len(bound) else np.nan,
             "within_tol_rate": (np.abs(bound) <= tol_ms).mean() if len(bound) else np.nan,
+            "starts_known": f"{len(st)}/{len(e)}",
+            "start_err_median_abs_ms": np.median(np.abs(st)) if len(st) else np.nan,
+            "ends_known": f"{len(en)}/{len(e)}",
+            "end_err_median_abs_ms": np.median(np.abs(en)) if len(en) else np.nan,
         })
     return per_block, pd.DataFrame(summary)
 
@@ -135,8 +163,9 @@ def mock_blocks():
         frames = pd.read_parquet(os.path.join(fx, f"mock_frames_{v}.parquet"))
         truth = pd.read_csv(path)
         rest, rom = calib[frames["subject_id"].iloc[0]]
-        yield "v0_fixed", v, segment_fixed(frames), truth
-        yield "v1_rom", v, segment_reps(frames, rom, rest), truth
+        clip = (frames["t_capture_ms"].min(), frames["t_capture_ms"].max())
+        yield "v0_fixed", v, segment_fixed(frames), truth, clip
+        yield "v1_rom", v, segment_reps(frames, rom, rest), truth, clip
 
 
 def check_labels(ref, frames, path):
@@ -191,8 +220,9 @@ def real_blocks(frames, labels_dir, rest_ref, rom_ref, angle_col, allow_missing=
             continue
         ref = load_labels(paths[block])
         check_labels(ref, f, paths[block])
-        yield "v0_fixed", block, segment_fixed(f, angle_col=angle_col), ref
-        yield "v1_rom", block, segment_reps(f, rom_ref, rest_ref, angle_col=angle_col), ref
+        clip = (f["t_capture_ms"].min(), f["t_capture_ms"].max())
+        yield "v0_fixed", block, segment_fixed(f, angle_col=angle_col), ref, clip
+        yield "v1_rom", block, segment_reps(f, rom_ref, rest_ref, angle_col=angle_col), ref, clip
 
 
 def _print(per_block, summary):
