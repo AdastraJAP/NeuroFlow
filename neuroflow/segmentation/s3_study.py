@@ -140,8 +140,10 @@ def check_labels(ref, frames, path):
     """
     A labels table may only be compared with the clip it was made on, on the same
     clock: time_source must be t_capture_ms (not video_fps), and block_id,
-    subject_id and session_id must match the frames of that block. Raises otherwise.
-    A file with 0 reps has no rows to check and passes.
+    subject_id and session_id must match the frames of that block, and every
+    marked time must lie inside the clip's capture interval [first, last
+    t_capture_ms]. Raises otherwise. A file with 0 reps has no rows to check and passes.
+    (Finite, ordered times are already checked by load_labels.)
     """
     bad_clock = sorted(set(ref["time_source"].dropna()) - {"t_capture_ms"})
     if bad_clock or ref["time_source"].isna().any():
@@ -154,6 +156,13 @@ def check_labels(ref, frames, path):
         got = sorted(set(ref[col].astype(str)) - {want[0]})
         if got:
             raise ValueError(f"{path}: {col} {got} doesn't match the frames ({want[0]})")
+    T = ref[["t_start_ms", "t_peak_ms", "t_end_ms"]].to_numpy(dtype=float)
+    lo, hi = frames["t_capture_ms"].min(), frames["t_capture_ms"].max()
+    outside = ~np.isnan(T) & ((T < lo) | (T > hi))
+    if outside.any():
+        reps = ref.loc[outside.any(axis=1), "rep_idx"].tolist()
+        raise ValueError(f"{path}: reps {reps} have times outside the clip "
+                         f"({lo:.0f}-{hi:.0f} ms capture time)")
 
 
 def real_blocks(frames, labels_dir, rest_ref, rom_ref, angle_col, allow_missing=False):

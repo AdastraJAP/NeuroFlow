@@ -139,3 +139,21 @@ def test_missing_label_files_are_reported(tmp_path, capsys):
 def test_check_labels_accepts_an_empty_labels_file():
     frames, _ = _clip("normal")
     check_labels(Labels().to_frame(), frames, "empty.csv")
+
+
+@pytest.mark.parametrize("shift_ms, point", [(-1e6, "t_start_ms"), (1e6, "t_end_ms")])
+def test_labels_outside_the_clip_are_rejected(tmp_path, shift_ms, point):
+    frames, truth = _clip("normal")
+    moved = truth.copy()
+    moved.loc[0 if shift_ms < 0 else len(moved) - 1, point] += shift_ms
+    _write_labels(tmp_path, frames, moved)
+    with pytest.raises(ValueError, match="outside the clip"):
+        _run_real(frames, tmp_path)
+
+
+def test_labels_at_the_clip_edges_are_accepted(tmp_path):
+    frames, truth = _clip("normal")
+    edge = truth.copy()
+    edge.loc[len(edge) - 1, "t_end_ms"] = frames["t_capture_ms"].max()   # like T_02's end
+    _write_labels(tmp_path, frames, edge)
+    _run_real(frames, tmp_path)

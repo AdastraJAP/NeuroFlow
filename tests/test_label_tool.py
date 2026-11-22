@@ -140,3 +140,25 @@ def test_select_block():
         select_block(both, "T_99")
     t, _ = frame_times(len(b), select_block(both, "slow"))      # frame_idx restarts per clip
     assert np.allclose(t, b.sort_values("frame_idx")["t_capture_ms"])
+
+
+def test_load_rejects_infinite_non_numeric_and_unordered_partial(tmp_path):
+    """Adastra's PR #3 re-review: imported boundaries must be finite and ordered."""
+    base = {c: "" for c in LABEL_COLUMNS}
+    def write(rows):
+        p = tmp_path / "bad.csv"
+        pd.DataFrame([{**base, "rep_idx": i, "t_start_ms": s, "t_peak_ms": k, "t_end_ms": e}
+                      for i, (s, k, e) in enumerate(rows)]).to_csv(p, index=False)
+        return p
+    for row in [(100, 200, np.inf), (-np.inf, 200, 300), (100, np.inf, 300)]:
+        with pytest.raises(ValueError, match="infinite"):
+            load_labels(write([row]))
+    with pytest.raises(ValueError, match="not numbers"):
+        load_labels(write([(100, "abc", 300)]))
+    # unfinished rep (no end yet): its marked points must still be in order
+    with pytest.raises(ValueError, match="start < peak < end"):
+        load_labels(write([(300, 200, np.nan)]), complete_only=False)
+    with pytest.raises(ValueError, match="start < peak < end"):
+        load_labels(write([(100, 100, 300)]))               # equal is not "after"
+    ok = load_labels(write([(100, 200, 300), (400, 500, np.nan)]), complete_only=False)
+    assert len(ok) == 2

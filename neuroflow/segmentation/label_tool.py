@@ -132,9 +132,13 @@ def save_labels(df, path):
 
 def load_labels(path, complete_only=True):
     """
-    Read a labels CSV and check it: start < peak < end inside each rep, reps in
-    order and not overlapping. complete_only drops reps with a missing point.
+    Read a labels CSV and check it: times are numbers and finite (NaN only for a
+    point not marked yet, never inf), start < peak < end inside each rep (also
+    for the points of an unfinished rep), reps in order and not overlapping.
+    complete_only drops reps with a missing point.
     Returns columns in LABEL_COLUMNS order, rep_idx renumbered from 0.
+    Whether the times lie inside the clip is checked against its frames in B8
+    (s3_study.check_labels).
     """
     # ids as text, so e.g. session "001" isn't read back as the number 1
     df = pd.read_csv(path, dtype={c: str for c in ("subject_id", "session_id", "block_id",
@@ -142,7 +146,21 @@ def load_labels(path, complete_only=True):
     missing = [c for c in LABEL_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError(f"{path}: missing columns {missing}")
-    df = df[LABEL_COLUMNS]
+    df = df[LABEL_COLUMNS].copy()
+    times = ["t_start_ms", "t_peak_ms", "t_end_ms"]
+    for c in times:
+        num = pd.to_numeric(df[c], errors="coerce")
+        if (num.isna() & df[c].notna()).any():
+            raise ValueError(f"{path}: {c} has values that are not numbers")
+        df[c] = num
+    T = df[times].to_numpy(dtype=float)
+    if np.isinf(T).any():
+        raise ValueError(f"{path}: reps {df.loc[np.isinf(T).any(axis=1), 'rep_idx'].tolist()} "
+                         "have infinite times")
+    for i, row in enumerate(T):
+        marked = row[~np.isnan(row)]
+        if (np.diff(marked) <= 0).any():
+            raise ValueError(f"{path}: reps [{df['rep_idx'].iloc[i]}] are not start < peak < end")
     if complete_only:
         df = df.dropna(subset=["t_start_ms", "t_peak_ms", "t_end_ms"])
     df = df.sort_values("t_start_ms").reset_index(drop=True)
