@@ -1,6 +1,6 @@
 # Member B: Task Status
 
-Last updated: 2026-11-22 · Branch: `Melchior-branch` · B1–B6 merged (PR #1); B7, B9 + Adastra's review fixes pushed, waiting on re-review (PR #3)
+Last updated: 2026-11-22 · Branch: `Melchior-branch` · B1–B6 merged (PR #1); B7, B9 + fixes for both Adastra reviews pushed, waiting on re-review (PR #3)
 
 Legend: ✅ done · 🟡 in progress / blocked on a decision · ⬜ not started
 
@@ -33,10 +33,12 @@ Legend: ✅ done · 🟡 in progress / blocked on a decision · ⬜ not started
 | --- | --- | --- |
 | Configurable angle input (`theta_ht_deg` / `theta_v_deg`), issue #4 | ✅ | `angle_col` on segmenter, calibration, features, templates, label tool; recorded in reps; thresholds hold on A's 6 V4 practice clips (1 rep found in each, rest 11.6°, rom 79.8°). 7 tests (112 total) |
 | Shoulder-line tilt feature (`max_shoulder_tilt_deg`, rest-corrected) | 🟡 | Waiting on 7willA's OK in issue #6 (issue #4 closed) |
-| Adastra's PR #3 review (3 blocking) | ✅ | Zero-rep angle kept (`126dade`), B9 strict mapping (`6b915ed`), B8 label checks (`ce764a2`); replied 2026-11-22. Non-blocking left: record the angle with calibration |
+| Adastra's PR #3 review (3 blocking) | ✅ | Zero-rep angle kept (`126dade`), B9 strict mapping (`6b915ed`), B8 label checks (`ce764a2`); replied 2026-11-22 |
+| Adastra's PR #3 re-review (2026-11-22) | ✅ | Label times finite, ordered, inside the clip (`569fe59`); calibration manifest `calib_manifest.py`, B8 takes `--calib` (`c548f59`, 12 tests, 156 total); tracking gaps moved to issue #12. Labels + manifest + README sent privately to Adastra (`data/g1/G2_labels_MelchiorRM.zip`). Replied; asked whether practice clips are P001 and which session. Waiting on re-review / approval |
 | 7willA's PR #8 (C3–C4) | ✅ reviewed | Comment review 2026-11-22: calibration lookup fails on real ids, `dtw_dist` per fold, `fold_id = -1` turns the leak check off for locked test, scikit-learn. Answered calibration question: rest per session, range/duration from session 1 |
-| Calibration block per session (Adastra) | 🟡 | Issue #9 |
-| Calibration marking in `reps.parquet` (with 7willA) | 🟡 | Issue #10 |
+| Calibration block per session (Adastra) | 🟡 | Issue #9: Adastra agrees (~10 reps per session), wants protocol confirmed by B and 7willA first |
+| Calibration marking in `reps.parquet` (with 7willA) | 🟡 | Issue #10. Adastra proposes `block_role = calibration / practice / test` (issue #9) |
+| Long tracking gaps interpolated over by `smooth()` | ⬜ | Issue #12 (not affecting G1) |
 | Reps columns `schema_version`, `block_id`, `side` (from PR #2) | ✅ | Same names and order as 7willA's contract (tested against `make_mock_reps.REP_COLUMNS`); `angle_col` is the only extra |
 | Per-fold DTW template (with C, before G2) | 🟡 | `dtw_feature.py` (`6605f7f`): `rep_curves` (B) + `add_dtw_dist` (C, template from fold's normal train reps only); 5 tests (140 total). 7willA notified in issue #10. To do: save real `rep_curves.parquet` |
 
