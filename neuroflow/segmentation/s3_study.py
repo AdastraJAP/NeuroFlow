@@ -19,7 +19,10 @@ sources; report sensitivity if results sit near it.
 
 Run (from the repo root):
     python -m neuroflow.segmentation.s3_study                  # mocks vs truth
-    python -m neuroflow.segmentation.s3_study --labels DIR     # real clips: DIR/<block_id>_labels.csv
+    python -m neuroflow.segmentation.s3_study --labels DIR --frames frames.parquet \
+           --calib calibration_manifest.json --angle theta_v_deg
+                                   # real clips: DIR/<block_id>_labels.csv; rest/rom come
+                                   # only from a checked manifest (calib_manifest.py)
 """
 
 import argparse
@@ -203,8 +206,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--labels", help="folder with <block_id>_labels.csv from the B9 tool")
     p.add_argument("--frames", help="frames.parquet of the labelled clips")
-    p.add_argument("--rest", type=float, help="rest_ref from a separate calibration block")
-    p.add_argument("--rom", type=float, help="rom_ref from a separate calibration block")
+    p.add_argument("--calib", help="calibration manifest (calib_manifest.py) for the real clips")
     p.add_argument("--angle", default="theta_ht_deg")
     p.add_argument("--allow-missing", action="store_true",
                    help="leave out blocks without a labels file (listed) instead of stopping")
@@ -214,9 +216,19 @@ def main():
     assert abs(interval_iou(0, 10, 5, 15) - 1 / 3) < 1e-12
 
     if a.labels:
+        from neuroflow.segmentation.calib_manifest import check_manifest, load_manifest
+        if not (a.frames and a.calib):
+            p.error("--labels needs --frames and --calib")
         frames = pd.read_parquet(a.frames)
-        print(f"S3 study on real clips ({a.angle}, rest {a.rest}, rom {a.rom}, IoU >= {MATCH_IOU})\n")
-        _print(*study(real_blocks(frames, a.labels, a.rest, a.rom, a.angle, a.allow_missing)))
+        m = load_manifest(a.calib)
+        rest, rom, warnings = check_manifest(m, frames, a.angle)
+        print(f"S3 study on real clips ({a.angle}, IoU >= {MATCH_IOU})")
+        print(f"calibration: rest {rest:.3f}, rom {rom:.3f} deg from {m['source_blocks']} "
+              f"(subject {m['subject_id']}, session {m['session_id']}, {a.calib})")
+        for w in warnings:
+            print(f"WARNING: {w}")
+        print()
+        _print(*study(real_blocks(frames, a.labels, rest, rom, a.angle, a.allow_missing)))
     else:
         print(f"S3 study on the mocks vs truth (IoU >= {MATCH_IOU}, tolerance +-{TOLERANCE_MS:.0f} ms)\n")
         _print(*study(mock_blocks()))
