@@ -111,3 +111,10 @@ def test_positive_control_passes_without_leak(reps, folds):
     a = shuffled_label_check(reps, folds, fit_nearest_normal, score_nearest_normal,
                              n_shuffles=3, seed=0)
     assert abs(a.mean() - 0.5) <= SHUFFLE_TOLERANCE
+
+
+def test_auroc_table_refuses_in_sample_rows(reps, folds):
+    scores = run_loso(reps, folds, fit_baseline, score_baseline, leak=True)
+    assert (scores["ref_type"] == "in_sample").all()
+    with pytest.raises(ValueError, match="in-sample"):
+        auroc_by_condition(scores, reps)

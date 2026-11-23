@@ -87,6 +87,18 @@ def iter_folds(reps, folds):
         yield int(fold_id), train, test
 
 
+def check_not_fitted_on(train_subjects, reps, allow_in_sample=False):
+    """
+    Raise if reps contain a subject the model was fitted on, unless the caller
+    explicitly allows in-sample scoring. Independent of fold_id, so the check is
+    also on when scoring the locked test (fold_id = LOCKED_FOLD_ID = -1).
+    """
+    overlap = set(train_subjects) & set(reps["subject_id"])
+    if overlap and not allow_in_sample:
+        raise ValueError(f"scoring subjects the model was fitted on: {sorted(overlap)} "
+                         "(pass allow_in_sample=True only for a deliberate in-sample run)")
+
+
 def save_folds(folds, path):
     check_folds(folds)
     folds.to_csv(path, index=False)

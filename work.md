@@ -187,7 +187,7 @@ C3 coverage is 0.986–0.996 in every row. **The mock is too easy:** C3 sits at 
 ### C8: P1 reproduction
 - RehabHub split: the normal reps of **each** subject are split at random between "template/baseline" and "test-normal" (every subject is in both sets, so it leaks).
 - My split: LOSO.
-- Same scorer, both splits, per condition → the AUROC gap is the result. `score_baseline(..., fold_id=-1)` allows in-sample scoring for exactly this leaky case.
+- Same scorer, both splits, per condition → the AUROC gap is the result. `score_baseline(..., allow_in_sample=True)` allows in-sample scoring for exactly this leaky case and marks the rows `ref_type="in_sample"`; `fold_id` no longer switches the check off (Melchior's review of PR #8, point 3).
 - Exact RehabHub recipe (for the faithful version): MA-5 smoothing, single shoulder angle, linear-stretch mean template, unconstrained DTW, Z, 100/max(Z,1).
 
 ### C9: Demo v0

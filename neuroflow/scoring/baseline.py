@@ -22,7 +22,8 @@ Run (from the repo root):
 import numpy as np
 import pandas as pd
 
-from neuroflow.scoring.contract import SCHEMA_VERSION, SCORE_COLUMNS
+from neuroflow.scoring.contract import IN_SAMPLE_REF_TYPE, SCHEMA_VERSION, SCORE_COLUMNS
+from neuroflow.scoring.folds import check_not_fitted_on
 
 SCORER_ID = "rehabhub_z"
 MAPPING = "100/max(Z,1)"
@@ -56,11 +57,15 @@ def rehabhub_score(z):
     return 100.0 / np.maximum(z, 1.0)
 
 
-def score_baseline(model, reps, fold_id=-1, ref_type="pooled_mean"):
-    """Score reps with a fitted model. Returns a scores table (SCORE_COLUMNS)."""
-    overlap = set(model["train_subjects"]) & set(reps["subject_id"])
-    if overlap and fold_id >= 0:
-        raise ValueError(f"scoring subjects the model was fitted on: {sorted(overlap)}")
+def score_baseline(model, reps, fold_id=-1, ref_type="pooled_mean", allow_in_sample=False):
+    """
+    Score reps with a fitted model. Returns a scores table (SCORE_COLUMNS).
+    allow_in_sample=True permits scoring training subjects (P1's leaky split) and
+    marks every row ref_type="in_sample".
+    """
+    check_not_fitted_on(model["train_subjects"], reps, allow_in_sample)
+    if allow_in_sample:
+        ref_type = IN_SAMPLE_REF_TYPE
     z = z_score(model, reps["dtw_dist"])
     score = rehabhub_score(z)
     missing = np.isnan(score)

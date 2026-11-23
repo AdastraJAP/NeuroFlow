@@ -30,3 +30,8 @@ FOLD_COLUMNS = ["subject_id", "fold_id", "split"]
 
 SPLITS = ("train", "val", "locked_test")
 LOCKED_FOLD_ID = -1
+
+# ref_type of rows scored on subjects the model was fitted on (P1's leaky
+# within-participant split, the leak-test control). Only possible with an explicit
+# allow_in_sample=True; fold_id never switches the leakage check off.
+IN_SAMPLE_REF_TYPE = "in_sample"

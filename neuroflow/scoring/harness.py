@@ -26,6 +26,8 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score
 
+from neuroflow.scoring.contract import IN_SAMPLE_REF_TYPE
+
 POSITIVE_CONTROLS = ("rom_cap",)
 NORMAL_BLOCK = "normal_test"
 CALIB_BLOCK = "normal_calib"
@@ -45,8 +47,9 @@ def run_loso(reps, folds, fit, score, leak=False):
     return all folds' scores concatenated (one row per development rep).
 
     leak=True is ONLY for the leak test's positive control: the model is fitted
-    on train AND test subjects, then scored with fold_id=-1 because score_reps and
-    score_baseline (rightly) refuse to score a training subject when fold_id >= 0.
+    on train AND test subjects, then scored with allow_in_sample=True, because
+    score_reps and score_baseline (rightly) refuse to score a training subject.
+    Those rows come back with ref_type="in_sample".
     """
     from neuroflow.scoring.folds import iter_folds
 
@@ -54,7 +57,8 @@ def run_loso(reps, folds, fit, score, leak=False):
     for fold_id, train, test in iter_folds(reps, folds):
         if leak:
             model = fit(pd.concat([train, test]))
-            parts.append(score(model, test, fold_id=-1))   # deliberate leak
+            parts.append(score(model, test, fold_id=fold_id,
+                               allow_in_sample=True))      # deliberate leak
         else:
             model = fit(train)
             parts.append(score(model, test, fold_id=fold_id))
@@ -84,6 +88,9 @@ def auroc_by_condition(scores, reps, session="s2"):
                           (same in every row) plus this condition's reps
     coverage              scored / all, over both classes
     """
+    if "ref_type" in scores and scores["ref_type"].eq(IN_SAMPLE_REF_TYPE).any():
+        raise ValueError("in-sample scores in an AUROC table; use them only in the "
+                         "explicit P1/leak comparisons")
     df = _attach(scores, reps)
     df = df[df["session_id"] == session]
 
@@ -176,7 +183,8 @@ def fit_nearest_normal(train_reps):
     return {"mu": mu, "sd": sd, "ref": ((X - mu) / sd).to_numpy()}
 
 
-def score_nearest_normal(model, reps, fold_id=-1):
+def score_nearest_normal(model, reps, fold_id=-1, allow_in_sample=False):
+    # No training-subject check here on purpose: this scorer only exists to leak.
     from neuroflow.scoring.scorer import feature_matrix
 
     Z = ((feature_matrix(reps) - model["mu"]) / model["sd"]).to_numpy()
@@ -189,6 +197,7 @@ def score_nearest_normal(model, reps, fold_id=-1):
     return pd.DataFrame({
         "rep_id": reps["rep_id"].to_numpy(),
         "fold_id": fold_id,
+        "ref_type": IN_SAMPLE_REF_TYPE if allow_in_sample else "pooled",
         "score_0_100": 100.0 / (1.0 + d),   # monotone: closer = higher, in (0, 100]
         "abstain": missing,
     })
