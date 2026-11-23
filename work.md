@@ -99,7 +99,7 @@ Legend: ✅ done (merged into `main`) · 🟡 in progress or in review · ⬜ no
 | C5 | LOSO harness: fit on train subjects, score the held-out subject, AUROC per condition | M | 🟡 in review (PR #13) | AUROC ≈ 0.5 on shuffled labels; high on a clearly shifted mock |
 | C6 | Statistics: subject-level bootstrap CI, paired score difference, ICC(2,1), SEM, MDC | L | 🟡 in review (PR #13) | CI on a known synthetic effect covers the truth ≈ 95 % of the time |
 | C7 | **P2 ablation grid runner** (reference × band × tempo term × mapping) | L | 🟡 v0 (tempo × mapping) in review (PR #13) | One command reproduces the table; each cell has a CI |
-| C8 | **P1 reproduction**: RehabHub within-participant split vs LOSO, per condition | M | 🟡 v0 written, tests pass, not pushed | Table showing the gap between the two splits, per condition |
+| C8 | **P1 reproduction**: RehabHub within-participant split vs LOSO, per condition | M | 🟡 v0 in review (PR #13) | Table showing the gap between the two splits, per condition |
 | C9 | Demo v0: live webcam loop with angle, rep count and last rep's score | S | ⬜ | Runs on the laptop webcam; prints a score after each rep |
 
 ### What exists now (C1 + C2)
