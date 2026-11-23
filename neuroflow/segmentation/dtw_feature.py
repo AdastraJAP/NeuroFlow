@@ -11,8 +11,10 @@ Two steps:
       curves = rep_curves(frames, reps, rest_ref, rom_ref)
       -> one row per rep_id, CURVE_COLUMNS = c00..c59: the rep cut out of the
          smoothed angle, normalised to the user's range ((theta - rest) / rom, so
-         rest = 0 and the typical peak = 1) and stretched to TEMPLATE_LEN samples.
-         Saved next to reps.parquet as rep_curves.parquet.
+         rest = 0 and the typical peak = 1) and stretched to TEMPLATE_LEN samples,
+         plus angle_col (which elevation angle the curve came from).
+         Saved next to reps.parquet as rep_curves.parquet (save_curves / load_curves).
+         Curves of different angles are never mixed: fitting or scoring raises.
   C's side, inside each fold (no frames needed):
       reps = add_dtw_dist(reps, curves, train_reps)
       -> template from the NORMAL reps of train_reps only, then
@@ -37,12 +39,38 @@ BAND_FRAC = 0.15            # same band as B5's templates
 # ---- B's side: curves from frames ----
 
 def rep_curves(frames, reps, rest_ref, rom_ref, angle_col=None):
-    """One normalised, stretched curve per rep (index rep_id, columns CURVE_COLUMNS).
+    """One normalised, stretched curve per rep (index rep_id, CURVE_COLUMNS + angle_col).
     Reps too short or too gappy to resample are left out (they get dtw_dist NaN)."""
-    R, kept = rep_matrix(frames, reps, rest_ref, rom_ref, n=TEMPLATE_LEN, angle_col=angle_col)
+    from neuroflow.segmentation.segment import reps_angle_col
+    angle = reps_angle_col(reps, angle_col)
+    R, kept = rep_matrix(frames, reps, rest_ref, rom_ref, n=TEMPLATE_LEN, angle_col=angle)
     if len(kept) == 0:
         R = np.empty((0, TEMPLATE_LEN))
-    return pd.DataFrame(R, index=pd.Index(kept, name="rep_id"), columns=CURVE_COLUMNS)
+    out = pd.DataFrame(R, index=pd.Index(kept, name="rep_id"), columns=CURVE_COLUMNS)
+    out["angle_col"] = angle
+    return out
+
+
+def save_curves(curves, path):
+    curves.reset_index().to_parquet(path, index=False)
+
+
+def load_curves(path):
+    c = pd.read_parquet(path)
+    missing = [k for k in ["rep_id", "angle_col"] + CURVE_COLUMNS if k not in c.columns]
+    if missing:
+        raise ValueError(f"{path}: missing columns {missing[:5]}")
+    return c.set_index("rep_id")
+
+
+def curves_angle(curves):
+    """The one angle these curves come from; raises if they mix angles."""
+    if "angle_col" not in curves.columns:
+        return None                       # bare curve tables (tests, mocks)
+    angles = sorted(curves["angle_col"].dropna().unique())
+    if len(angles) > 1:
+        raise ValueError(f"curves mix angle columns {angles}; never compare them")
+    return angles[0] if angles else None
 
 
 # ---- C's side: template and distance inside a fold ----
@@ -52,8 +80,9 @@ def fit_template(curves, train_reps, method="dba", band_frac=BAND_FRAC):
     Template from the NORMAL reps of train_reps that have a curve.
     Pass the fold's training subjects only. method: "dba" (B5 default) or "mean".
     """
+    curves_angle(curves)
     ids = train_reps.loc[train_reps["condition"] == "normal", "rep_id"]
-    R = curves.reindex(ids).dropna().to_numpy()
+    R = curves.reindex(ids)[CURVE_COLUMNS].dropna().to_numpy()
     if len(R) == 0:
         raise ValueError("no normal training reps with a curve to build the template from")
     if method == "mean":
@@ -65,7 +94,7 @@ def fit_template(curves, train_reps, method="dba", band_frac=BAND_FRAC):
 
 def dtw_dist(curves, template, band_frac=BAND_FRAC):
     """Banded DTW distance of every curve to the template (Series by rep_id)."""
-    d = [dtw_distance(x, template, band_frac) for x in curves.to_numpy()]
+    d = [dtw_distance(x, template, band_frac) for x in curves[CURVE_COLUMNS].to_numpy()]
     return pd.Series(d, index=curves.index, name="dtw_dist", dtype=float)
 
 
@@ -77,8 +106,9 @@ def add_dtw_dist(reps, curves, train_reps, method="dba", band_frac=BAND_FRAC):
     Only curves of train_reps' normal reps enter the template, so the held-out
     subject never shapes its own reference.
     """
+    curves_angle(curves)
     template = fit_template(curves, train_reps, method, band_frac)
-    have = curves.reindex(reps["rep_id"]).dropna()
+    have = curves.reindex(reps["rep_id"]).dropna(subset=CURVE_COLUMNS)
     d = dtw_dist(have, template, band_frac)
     out = reps.copy()
     out["dtw_dist"] = out["rep_id"].map(d).astype(float)

@@ -34,11 +34,11 @@ def test_curves_from_mock_frames():
     rest, rom = calibration_refs()[frames["subject_id"].iloc[0]]
     reps = segment_reps(frames, rom, rest)
     c = rep_curves(frames, reps, rest, rom)
-    assert list(c.columns) == CURVE_COLUMNS and len(c.columns) == TEMPLATE_LEN
+    assert list(c.columns) == CURVE_COLUMNS + ["angle_col"] and len(CURVE_COLUMNS) == TEMPLATE_LEN
     assert list(c.index) == list(reps["rep_id"])
     # range-normalised: starts near rest (0) and peaks near the typical peak (1)
-    assert np.abs(c.iloc[:, 0]).max() < 0.2
-    assert c.max(axis=1).between(0.8, 1.2).all()
+    assert np.abs(c["c00"]).max() < 0.2
+    assert c[CURVE_COLUMNS].max(axis=1).between(0.8, 1.2).all()
 
 
 def test_capped_reps_are_further_from_normal_template():
@@ -77,3 +77,26 @@ def test_no_normal_training_reps_raises():
     reps, curves = _toy()
     with pytest.raises(ValueError, match="no normal training reps"):
         fit_template(curves, reps[reps["condition"] != "normal"])
+
+
+# ---- angle provenance and saving (#14) ----
+from neuroflow.segmentation.dtw_feature import load_curves, save_curves  # noqa: E402
+
+
+def test_curves_record_their_angle_and_round_trip(tmp_path):
+    frames = pd.read_parquet(os.path.join(FX, "mock_frames_normal.parquet"))
+    rest, rom = calibration_refs()[frames["subject_id"].iloc[0]]
+    c = rep_curves(frames, segment_reps(frames, rom, rest), rest, rom)
+    assert (c["angle_col"] == "theta_ht_deg").all()
+    p = tmp_path / "rep_curves.parquet"
+    save_curves(c, p)
+    back = load_curves(p)
+    pd.testing.assert_frame_equal(back, c)
+
+
+def test_mixed_angles_are_refused():
+    reps, curves = _toy()
+    curves = curves.assign(angle_col="theta_ht_deg")
+    curves.iloc[0, curves.columns.get_loc("angle_col")] = "theta_v_deg"
+    with pytest.raises(ValueError, match="mix angle columns"):
+        add_dtw_dist(reps, curves, reps[reps["subject_id"] != "s0"])
