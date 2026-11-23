@@ -98,14 +98,17 @@ def _labelled(scores, reps, session):
     return df[df["session_id"] == session]
 
 
-def subject_groups(scores, reps, condition, level, session="s2", keep=None):
+def subject_groups(scores, reps, condition, level, session="s2", keep=None,
+                   allow_in_sample=False):
     """
     Per subject: (normal_test scores, scores of this condition/level), session only,
     abstained reps dropped. keep: optional set of rep_ids to restrict to (used to
     compare two scorers on exactly the same reps).
+    allow_in_sample=True only for the explicit P1 comparison (C8).
     Returns (subject list, list of normal arrays, list of impaired arrays).
     """
-    _check_no_in_sample(scores)
+    if not allow_in_sample:
+        _check_no_in_sample(scores)
     df = _labelled(scores, reps, session)
     df = df[~df["abstain"].astype(bool)]
     if keep is not None:
@@ -142,7 +145,8 @@ def bootstrap_auroc(scores, reps, condition, level, n_boot=N_BOOT, seed=SEED,
 # ---------------------------------------------------------------- v2
 
 def paired_auroc_diff(scores_a, scores_b, reps, condition, level, n_boot=N_BOOT,
-                      seed=SEED, alpha=ALPHA, session="s2"):
+                      seed=SEED, alpha=ALPHA, session="s2", keep=None,
+                      allow_in_sample=False):
     """
     AUROC(A) - AUROC(B) on the same reps and the same subject resamples.
 
@@ -154,16 +158,24 @@ def paired_auroc_diff(scores_a, scores_b, reps, condition, level, n_boot=N_BOOT,
     """
     ok_a = set(scores_a.loc[~scores_a["abstain"].astype(bool), "rep_id"])
     ok_b = set(scores_b.loc[~scores_b["abstain"].astype(bool), "rep_id"])
-    keep = ok_a & ok_b
-    sa, na, ia = subject_groups(scores_a, reps, condition, level, session, keep)
-    sb, nb, ib = subject_groups(scores_b, reps, condition, level, session, keep)
+    both = ok_a & ok_b
+    keep = both if keep is None else both & set(keep)
+    sa, na, ia = subject_groups(scores_a, reps, condition, level, session, keep,
+                                allow_in_sample)
+    sb, nb, ib = subject_groups(scores_b, reps, condition, level, session, keep,
+                                allow_in_sample)
     assert sa == sb, "both scorers must cover the same subjects"
     draws = subject_draws(len(sa), n_boot, seed)
-    diff = _boot_auroc(na, ia, draws) - _boot_auroc(nb, ib, draws)
+    boot_a, boot_b = _boot_auroc(na, ia, draws), _boot_auroc(nb, ib, draws)
+    diff = boot_a - boot_b
     est = (auroc(np.concatenate(na), np.concatenate(ia))
            - auroc(np.concatenate(nb), np.concatenate(ib)))
     lo, hi = percentile_ci(diff, alpha)
+    a_lo, a_hi = percentile_ci(boot_a, alpha)
+    b_lo, b_hi = percentile_ci(boot_b, alpha)
     return {"diff": est, "lo": lo, "hi": hi, "excludes_zero": bool(lo > 0 or hi < 0),
+            "a": auroc(np.concatenate(na), np.concatenate(ia)), "a_lo": a_lo, "a_hi": a_hi,
+            "b": auroc(np.concatenate(nb), np.concatenate(ib)), "b_lo": b_lo, "b_hi": b_hi,
             "n_subjects": len(sa), "n_reps": len(keep)}
 
 
