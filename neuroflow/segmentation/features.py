@@ -17,6 +17,8 @@ before rep_features() combines them into reps.parquet columns.
                         depends on how A4 signs lean)
     min_elbow_deg       min elbow_deg; 180 = straight arm, lower = more bent
     max_hike_ratio      max hike_ratio (exploratory; weak evidence)
+    max_shoulder_tilt_deg  max |shoulder_tilt_deg - resting tilt| (exploratory, #6/#14;
+                        see rest_corrected_tilt for the resting window)
 
 Choices made here (not literature values): ROM as excursion from rest, the ratio
 form of the personal centring, SPARC on the whole rep (raise + lower) using the
@@ -166,6 +168,49 @@ COMPENSATION = [
 ]
 
 
+# Shoulder-line tilt (exploratory, issue #6; agreed with 7willA as a sub-score, never a
+# feedback code). Per-frame shoulder_tilt_deg, positive = right shoulder higher
+# (Adastra's V4 convention). Posture and camera already tilt the shoulder line a
+# little at rest, so the resting tilt is subtracted.
+#   Resting window: the TILT_REST_S = 0.5 s just before the rep's start (arm still
+#   at rest), cut at the previous rep's end; resting tilt = median of its valid
+#   frames, needs at least TILT_REST_MIN_FRAMES = 8 (as V4's tilt_change baseline).
+#   Our choice, not a literature value.
+#   Deviation wrapped to [-90, 90) (as V4), then max |deviation| over the rep with
+#   the same 50 % valid-frame rule as the other compensation features.
+TILT_COL = "shoulder_tilt_deg"
+TILT_REST_S = 0.5
+TILT_REST_MIN_FRAMES = 8
+
+
+def wrap_deg(x):
+    """Angle difference wrapped to [-90, 90): a line has no direction."""
+    return (np.asarray(x, dtype=float) + 90.0) % 180.0 - 90.0
+
+
+def resting_tilt(t_ms, tilt, t_start_ms, t_prev_end_ms=np.nan):
+    """Median raw tilt over the TILT_REST_S before t_start (not before the previous
+    rep's end). NaN if the start is unknown or fewer than TILT_REST_MIN_FRAMES are valid."""
+    if np.isnan(t_start_ms):
+        return np.nan
+    lo = t_start_ms - TILT_REST_S * 1000.0
+    if not np.isnan(t_prev_end_ms):
+        lo = max(lo, t_prev_end_ms)
+    t_ms = np.asarray(t_ms, dtype=float)
+    win = np.asarray(tilt, dtype=float)[(t_ms >= lo) & (t_ms < t_start_ms)]
+    win = win[~np.isnan(win)]
+    return float(np.median(win)) if len(win) >= TILT_REST_MIN_FRAMES else np.nan
+
+
+def rest_corrected_tilt(t_ms, tilt, tilt_s, t_start_ms, t_end_ms, t_prev_end_ms=np.nan):
+    """max |tilt_s - resting tilt| (wrapped) over one rep; NaN like the other B7 features."""
+    base = resting_tilt(t_ms, tilt, t_start_ms, t_prev_end_ms)
+    if np.isnan(base):
+        return np.nan
+    dev = np.abs(wrap_deg(np.asarray(tilt_s, dtype=float) - base))
+    return rep_window_extreme(t_ms, dev, t_start_ms, t_end_ms, "max", COMP_MIN_VALID_FRAC)
+
+
 # ---- integration ----
 
 def rep_features(frames, reps, rest_ref, rom_ref, angle_col=None):
@@ -204,6 +249,18 @@ def rep_features(frames, reps, rest_ref, rom_ref, angle_col=None):
         out[name] = [rep_window_extreme(t, sig_s, r["t_start_ms"], r["t_end_ms"], how,
                                         COMP_MIN_VALID_FRAC)
                      for _, r in out.iterrows()]
+
+    # shoulder-line tilt, rest-corrected per rep (frames without the column -> NaN)
+    if TILT_COL not in frames.columns:
+        out["max_shoulder_tilt_deg"] = np.nan
+    else:
+        tilt = frames[TILT_COL].to_numpy(dtype=float)
+        tilt_s = smooth(t, tilt)
+        tilt_s[np.isnan(tilt)] = np.nan
+        prev_end = np.r_[np.nan, out["t_end_ms"].to_numpy(dtype=float)[:-1]]
+        out["max_shoulder_tilt_deg"] = [
+            rest_corrected_tilt(t, tilt, tilt_s, r["t_start_ms"], r["t_end_ms"], pe)
+            for (_, r), pe in zip(out.iterrows(), prev_end)]
     return out
 
 
