@@ -19,10 +19,13 @@ raises when:
   - the values are not finite or rom_ref <= 0.
 A different session only warns (and is reported): on G1 the calibration comes
 from separate practice clips, so a same-session calibration isn't possible yet.
+session_id may be null when the source has no session ID (G1 practice clips);
+that also warns, and "notes" says why.
 
 Make one from Adastra's V4 practice sidecars (*.jsonl):
     python -m neuroflow.segmentation.calib_manifest data/g1/practice/complete_0{7,8,9}.jsonl \\
-        --subject P001 --session S001 --out data/g1/calibration_manifest.json
+        --subject P001 --no-session --note "practice metadata has no session ID" \
+        --out data/g1/calibration_manifest.json
 """
 
 import argparse
@@ -60,8 +63,10 @@ def practice_frames(paths, angle_col="theta_v_deg"):
     return pd.concat(parts, ignore_index=True)
 
 
-def make_manifest(frames, angle_col, subject_id, session_id, source, source_blocks, source_files=()):
-    """Run calibrate() on a calibration block and record where the numbers came from."""
+def make_manifest(frames, angle_col, subject_id, session_id, source, source_blocks, source_files=(),
+                  notes=""):
+    """Run calibrate() on a calibration block and record where the numbers came from.
+    session_id None = the source has no session ID (recorded as null, never guessed)."""
     rest, rom = calibrate(frames, angle_col=angle_col)
     return {
         "manifest_version": MANIFEST_VERSION,
@@ -69,11 +74,12 @@ def make_manifest(frames, angle_col, subject_id, session_id, source, source_bloc
         "rest_ref": rest,
         "rom_ref": rom,
         "subject_id": str(subject_id),
-        "session_id": str(session_id),
+        "session_id": None if session_id is None else str(session_id),
         "source": source,
         "source_blocks": [str(b) for b in source_blocks],
         "source_files": [{"name": os.path.basename(f), "sha256": _sha256(f)} for f in source_files],
         "method": "segment.calibrate",
+        "notes": notes,
     }
 
 
@@ -113,7 +119,10 @@ def check_manifest(m, frames, angle_col):
                          "calibrate on separate clips")
     warnings = []
     sessions = sorted(frames["session_id"].astype(str).unique())
-    if sessions != [m["session_id"]]:
+    if m["session_id"] is None:
+        warnings.append(f"calibration session not recorded ({m.get('notes') or 'no session ID'}); "
+                        f"frames are {sessions}")
+    elif sessions != [m["session_id"]]:
         warnings.append(f"calibration session {m['session_id']} differs from frames' {sessions}")
     return rest, rom, warnings
 
@@ -122,14 +131,18 @@ def main():
     p = argparse.ArgumentParser(description="Calibration manifest from V4 practice sidecars")
     p.add_argument("jsonl", nargs="+", help="practice sidecars, e.g. complete_07.jsonl")
     p.add_argument("--subject", required=True)
-    p.add_argument("--session", required=True)
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--session")
+    g.add_argument("--no-session", action="store_true", help="the source has no session ID")
+    p.add_argument("--note", default="", help="free text kept in the manifest (e.g. file provenance)")
     p.add_argument("--angle", default="theta_v_deg")
     p.add_argument("--out", required=True)
     a = p.parse_args()
     blocks = [os.path.splitext(os.path.basename(f))[0] for f in a.jsonl]
-    m = make_manifest(practice_frames(a.jsonl, a.angle), a.angle, a.subject, a.session,
+    m = make_manifest(practice_frames(a.jsonl, a.angle), a.angle, a.subject,
+                      None if a.no_session else a.session,
                       source="V4 practice sidecars, joined back to back", source_blocks=blocks,
-                      source_files=a.jsonl)
+                      source_files=a.jsonl, notes=a.note)
     save_manifest(m, a.out)
     print(f"rest_ref {m['rest_ref']:.3f} deg, rom_ref {m['rom_ref']:.3f} deg on {a.angle} "
           f"from {blocks} -> {a.out}")

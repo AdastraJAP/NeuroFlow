@@ -85,3 +85,13 @@ def test_practice_sidecars_are_joined_with_gaps(tmp_path):
     f = practice_frames(paths)
     assert list(f["t_capture_ms"]) == [0, 40, 80, 1080, 1120, 1160]
     assert np.isnan(f["theta_v_deg"].iloc[1]) and f["theta_v_deg"].iloc[2] == 12.0
+
+
+def test_unrecorded_session_is_null_and_warns(manifest, frames, tmp_path):
+    m = {**manifest, "session_id": None, "notes": "practice metadata has no session ID"}
+    path = tmp_path / "m.json"
+    save_manifest(m, path)
+    back = load_manifest(path)
+    assert back["session_id"] is None
+    _, _, warnings = check_manifest(back, frames, "theta_v_deg")
+    assert len(warnings) == 1 and "not recorded" in warnings[0] and "no session ID" in warnings[0]
