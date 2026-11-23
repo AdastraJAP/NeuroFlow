@@ -94,9 +94,9 @@ Legend: ✅ done (merged into `main`) · 🟡 in progress or in review · ⬜ no
 | --- | --- | --- | --- | --- |
 | C1 | Mock `reps.parquet` generator + subject-wise `folds.csv` builder (locked test subset) | S | ✅ merged (PR #2) | Mock with 18 subjects; no subject in two folds |
 | C2 | RehabHub baseline: Z of DTW distance vs normal reps, score = 100 / max(Z, 1) | S | ✅ merged (PR #2) | Reproduces the saturation: many reps with Z < 1 all get 100 |
-| C3 | Scorer v1: standardise features → Ledoit-Wolf covariance → Mahalanobis distance → pooled ECDF → 0–100 | M | 🟡 in review (PR #8) | A shifted mock group scores lower than normal; ECDF of training normals ≈ uniform |
-| C4 | P3 sub-scores: per-feature ECDF for lean, elbow, hike (and rom, tempo, shape, smooth); feedback code from the worst sub-score | M | 🟡 in review (PR #8) | A lean-heavy mock rep returns feedback code "trunk" |
-| C5 | LOSO harness: fit on train subjects, score the held-out subject, AUROC per condition | M | 🟡 in review (PR #8) | AUROC ≈ 0.5 on shuffled labels; high on a clearly shifted mock |
+| C3 | Scorer v1: standardise features → Ledoit-Wolf covariance → Mahalanobis distance → pooled ECDF → 0–100 | M | ✅ merged (PR #8) | A shifted mock group scores lower than normal; ECDF of training normals ≈ uniform |
+| C4 | P3 sub-scores: per-feature ECDF for lean, elbow, hike (and rom, tempo, shape, smooth); feedback code from the worst sub-score | M | ✅ merged (PR #8) | A lean-heavy mock rep returns feedback code "trunk" |
+| C5 | LOSO harness: fit on train subjects, score the held-out subject, AUROC per condition | M | 🟡 in review (PR #13) | AUROC ≈ 0.5 on shuffled labels; high on a clearly shifted mock |
 | C6 | Statistics: subject-level bootstrap CI, paired score difference, ICC(2,1), SEM, MDC | L | ⬜ | CI on a known synthetic effect covers the truth ≈ 95 % of the time |
 | C7 | **P2 ablation grid runner** (reference × band × tempo term × mapping) | L | ⬜ | One command reproduces the table; each cell has a CI |
 | C8 | **P1 reproduction**: RehabHub within-participant split vs LOSO, per condition | M | ⬜ | Table showing the gap between the two splits, per condition |
