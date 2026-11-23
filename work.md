@@ -1,6 +1,6 @@
 # Member C: Wilkend's Work Plan
 
-Branch: `Wilkend` (rebased on `main`, `3a117d2`) · Owner: Wilkend Auguste · Last updated: 2026-11-22
+Branch: `Wilkend` (rebased on `main`, `3a117d2`) · Owner: Wilkend Auguste · Last updated: 2026-11-23
 
 Source documents (from Melchior, Nov 17): *Implementation Plan: Tasks, Workflow and Member Prompts*, *Research Brief: Evidence, Datasets and Architecture*, *Research Basis (3 + 3 contributions)*, and Prof. Huang's email of Nov 17 ("Re: Next meeting").
 
@@ -96,7 +96,7 @@ Legend: ✅ done (merged into `main`) · 🟡 in progress or in review · ⬜ no
 | C2 | RehabHub baseline: Z of DTW distance vs normal reps, score = 100 / max(Z, 1) | S | ✅ merged (PR #2) | Reproduces the saturation: many reps with Z < 1 all get 100 |
 | C3 | Scorer v1: standardise features → Ledoit-Wolf covariance → Mahalanobis distance → pooled ECDF → 0–100 | M | 🟡 in review (PR #8) | A shifted mock group scores lower than normal; ECDF of training normals ≈ uniform |
 | C4 | P3 sub-scores: per-feature ECDF for lean, elbow, hike (and rom, tempo, shape, smooth); feedback code from the worst sub-score | M | 🟡 in review (PR #8) | A lean-heavy mock rep returns feedback code "trunk" |
-| C5 | LOSO harness: fit on train subjects, score the held-out subject, AUROC per condition | M | ⬜ | AUROC ≈ 0.5 on shuffled labels; high on a clearly shifted mock |
+| C5 | LOSO harness: fit on train subjects, score the held-out subject, AUROC per condition | M | 🟡 in review (PR #8) | AUROC ≈ 0.5 on shuffled labels; high on a clearly shifted mock |
 | C6 | Statistics: subject-level bootstrap CI, paired score difference, ICC(2,1), SEM, MDC | L | ⬜ | CI on a known synthetic effect covers the truth ≈ 95 % of the time |
 | C7 | **P2 ablation grid runner** (reference × band × tempo term × mapping) | L | ⬜ | One command reproduces the table; each cell has a CI |
 | C8 | **P1 reproduction**: RehabHub within-participant split vs LOSO, per condition | M | ⬜ | Table showing the gap between the two splits, per condition |
@@ -119,6 +119,21 @@ Legend: ✅ done (merged into `main`) · 🟡 in progress or in review · ⬜ no
 - **Normal median is 40.5, not 50.** μ, Σ and the ECDF reference are fitted on the training subjects, so their own normal reps fit the model by construction; a held-out subject moves in their own way. That 50 → 40.5 drop is a small example of the P1 leakage gap.
 
 **C4 result (mock data, LOSO, session-2 reps):** the expected feedback code is the most common one for every condition: trunk_lean → `trunk`, elbow_bend → `elbow`, rom_cap → `rom`, slow and band → `tempo` (feedback on 99–100 % of reps; rom_cap 90° on 51 %, a mild case). **False feedback on held-out normal reps: 6.8 %**, above the naive 5 % because held-out subjects score lower than training subjects. Hike shrug gets feedback on 9.3 %, mostly `shape`, because hike is never allowed to speak.
+
+**C5 result (mock data, LOSO, s2, `normal_test` vs each condition, AUROC):**
+
+| Condition | RehabHub (C2) | C3 |
+| --- | --- | --- |
+| slow 2x / 3x | 0.548 / 0.545 | 1.000 / 1.000 |
+| trunk_lean small / large | 0.547 / 0.611 | 1.000 / 1.000 |
+| elbow_bend 30° / 60° | 0.572 / 0.629 | 1.000 / 1.000 |
+| band light / medium | 0.767 / 0.980 | 0.999 / 1.000 |
+| hike shrug | 0.559 | 0.544 (hike is not a C3 feature) |
+| *rom_cap 60° / 90° (positive control)* | *0.999 / 0.667* | *1.000 / 0.768* |
+
+C3 coverage is 0.986–0.996 in every row. **The mock is too easy:** C3 sits at the 1.000 ceiling almost everywhere, so C7 variants cannot be told apart on it. Meaningful P2 differences will need real data (or a harder mock).
+
+**Leak test (labels shuffled within subject, before fitting; pass = mean 0.5 ± 0.05, fixed in advance):** C3 LOSO 0.501 ✅, 1-NN LOSO 0.492 ✅, **1-NN with a deliberate leak 1.000 → caught ✅**, but **C3 with the same deliberate leak 0.506 → passes**. Lesson: the test is sensitive to a scorer that memorises reps, but blind to a leak into a smooth model like C3 (a few means and one covariance cannot memorise a subject). So for C3, passing the shuffle test is weak evidence; its real protection is structural (the scorer refuses to score a training subject, and tests prove impaired training reps do not change the fit).
 
 **Real data (G1, P001, 3 clips) – known gap:** `trunk_lean_deg` is NaN on 100 % of frames and `elbow_deg` is valid on only 0–5 %, so the C3 scorer as written would abstain on every real rep. The feature set must depend on what the pipeline provides (and be recorded in the model). To do before G3.
 
