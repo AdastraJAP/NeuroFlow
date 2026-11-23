@@ -58,6 +58,8 @@ T_LOW = 20.0            # deg, leave a rep below this
 SMOOTH_WINDOW_S = 0.25  # Savitzky-Golay window (A5 default); swap for A's smooth_savgol later
 SMOOTH_ORDER = 2
 MAX_SEARCH_S = 1.5      # how far before/after a crossing to look for rest
+MAX_GAP_S = 0.2         # tracking gaps up to this long are bridged; longer ones stay NaN
+                        # and a rep that spans one is not reported (issue #12)
 REST_STABLE_S = 0.5     # rest must be still over this long (the part farthest from the rep)
 REST_MAX_SLOPE = 3.0    # deg/s; faster than this the arm is still moving, not at rest
                         # (G1 clips end while still falling at about 10 deg/s)
@@ -113,18 +115,55 @@ def reps_angle_col(reps, angle_col=None):
     return angle_col or ANGLE_COL
 
 
+def long_gaps(t_ms, x, max_gap_s=MAX_GAP_S):
+    """True for frames inside a run of missing values that lasts longer than
+    max_gap_s (from the first to the last missing frame, plus one frame)."""
+    x = np.asarray(x, dtype=float)
+    t_ms = np.asarray(t_ms, dtype=float)
+    miss = np.isnan(x)
+    out = np.zeros(len(x), dtype=bool)
+    if len(x) < 2 or not miss.any():
+        return out
+    dt = np.median(np.diff(t_ms))
+    i = 0
+    while i < len(x):
+        if miss[i]:
+            j = i
+            while j + 1 < len(x) and miss[j + 1]:
+                j += 1
+            if t_ms[j] - t_ms[i] + dt > max_gap_s * 1000.0:
+                out[i:j + 1] = True
+            i = j + 1
+        else:
+            i += 1
+    return out
+
+
 def smooth(t_ms, x, window_s=SMOOTH_WINDOW_S, order=SMOOTH_ORDER):
     """Zero-phase Savitzky-Golay smoothing. Window is set in seconds from real timestamps.
-    NaN gaps are linearly interpolated for smoothing only."""
+    Short NaN gaps (<= MAX_GAP_S) are linearly interpolated for smoothing only.
+    Long gaps stay NaN, and the pieces between them are smoothed separately, so
+    no value is invented across a long tracking gap (issue #12)."""
     x = np.asarray(x, dtype=float)
-    ok = ~np.isnan(x)
-    if ok.sum() < 3:
+    t_ms = np.asarray(t_ms, dtype=float)
+    out = np.full(len(x), np.nan)
+    if (~np.isnan(x)).sum() < 3:
         return x.copy()
-    x = np.interp(t_ms, t_ms[ok], x[ok])
     dt = np.median(np.diff(t_ms))
     win = int(round(window_s * 1000.0 / dt))
     win = max(win | 1, order + 2 | 1)  # odd and long enough for the polynomial
-    return savgol_filter(x, win, order)
+    gap = long_gaps(t_ms, x)
+    edges = np.flatnonzero(np.diff(np.r_[1, gap.astype(int), 1]))   # piece boundaries
+    for a, b in zip(edges[::2], edges[1::2]):                      # pieces of non-gap frames
+        tt, xx = t_ms[a:b], x[a:b]
+        ok = ~np.isnan(xx)
+        if ok.sum() < 3:
+            out[a:b] = xx
+            continue
+        xx = np.interp(tt, tt[ok], xx[ok])
+        w = min(win, len(xx) if len(xx) % 2 else len(xx) - 1)
+        out[a:b] = savgol_filter(xx, w, order) if w > order else xx
+    return out
 
 
 def detect(theta_s, t_high=T_HIGH, t_low=T_LOW):
@@ -282,12 +321,15 @@ def _rep_table(frames, reps, seg_method, angle_col=ANGLE_COL):
 
 
 def _run(frames, t_high, t_low, method, angle_col=ANGLE_COL):
-    """Smooth, detect and place boundaries. Returns (reps, peak angles)."""
+    """Smooth, detect and place boundaries. Returns (frames, reps, peak angles,
+    number of reps dropped because they span a long tracking gap)."""
     frames, t, theta = angle_signal(frames, angle_col)
     theta_s = smooth(t, theta)
     det = detect(theta_s, t_high, t_low)
-    reps = boundaries(theta_s, t, det, method, t_low=t_low)
-    return frames, reps, [float(theta_s[p]) for _, p, _ in det]
+    gap = long_gaps(t, theta)
+    kept = [d for d in det if not gap[d[0]:d[2] + 1].any()]   # peak/crossings not measured
+    reps = boundaries(theta_s, t, kept, method, t_low=t_low)
+    return frames, reps, [float(theta_s[p]) for _, p, _ in kept], len(det) - len(kept)
 
 
 def segment_fixed(frames, method="pct_range", t_high=T_HIGH, t_low=T_LOW, angle_col=ANGLE_COL):
@@ -295,8 +337,10 @@ def segment_fixed(frames, method="pct_range", t_high=T_HIGH, t_low=T_LOW, angle_
     B2: segment one block of frames.parquet into reps with fixed thresholds (deg).
     Returns a DataFrame with the reps.parquet timing columns.
     """
-    frames, reps, _ = _run(frames, t_high, t_low, method, angle_col)
-    return _rep_table(frames, reps, f"fsm_fixed_{method}", angle_col)
+    frames, reps, _, n_gap = _run(frames, t_high, t_low, method, angle_col)
+    out = _rep_table(frames, reps, f"fsm_fixed_{method}", angle_col)
+    out.attrs["dropped_gap_reps"] = n_gap
+    return out
 
 
 def calibrate(frames, angle_col=ANGLE_COL):
@@ -330,7 +374,7 @@ def segment_reps(frames, rom_ref, rest_ref=None, method="pct_range", angle_col=A
         rest_ref = float(np.nanpercentile(theta, 10))
     t_high = rest_ref + START_FRAC * rom_ref
     t_low = rest_ref + END_FRAC * rom_ref
-    frames, reps, peaks = _run(frames, t_high, t_low, method, angle_col)
+    frames, reps, peaks, n_gap = _run(frames, t_high, t_low, method, angle_col)
 
     keep = []
     for (t_s, t_p, t_e), pk in zip(reps, peaks):
@@ -339,7 +383,9 @@ def segment_reps(frames, rom_ref, rest_ref=None, method="pct_range", angle_col=A
         if not np.isnan(t_s) and not np.isnan(t_e) and (t_e - t_s) / 1000.0 < MIN_DUR_S:
             continue                                    # too short to be a rep
         keep.append((t_s, t_p, t_e))
-    return _rep_table(frames, keep, f"fsm_rom_{method}", angle_col)
+    out = _rep_table(frames, keep, f"fsm_rom_{method}", angle_col)
+    out.attrs["dropped_gap_reps"] = n_gap      # spanned a long tracking gap: not reported
+    return out
 
 
 def compare_to_truth(reps, truth):
