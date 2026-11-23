@@ -97,8 +97,8 @@ Legend: ✅ done (merged into `main`) · 🟡 in progress or in review · ⬜ no
 | C3 | Scorer v1: standardise features → Ledoit-Wolf covariance → Mahalanobis distance → pooled ECDF → 0–100 | M | ✅ merged (PR #8) | A shifted mock group scores lower than normal; ECDF of training normals ≈ uniform |
 | C4 | P3 sub-scores: per-feature ECDF for lean, elbow, hike (and rom, tempo, shape, smooth); feedback code from the worst sub-score | M | ✅ merged (PR #8) | A lean-heavy mock rep returns feedback code "trunk" |
 | C5 | LOSO harness: fit on train subjects, score the held-out subject, AUROC per condition | M | 🟡 in review (PR #13) | AUROC ≈ 0.5 on shuffled labels; high on a clearly shifted mock |
-| C6 | Statistics: subject-level bootstrap CI, paired score difference, ICC(2,1), SEM, MDC | L | ⬜ | CI on a known synthetic effect covers the truth ≈ 95 % of the time |
-| C7 | **P2 ablation grid runner** (reference × band × tempo term × mapping) | L | ⬜ | One command reproduces the table; each cell has a CI |
+| C6 | Statistics: subject-level bootstrap CI, paired score difference, ICC(2,1), SEM, MDC | L | 🟡 written, tests pass, not pushed | CI on a known synthetic effect covers the truth ≈ 95 % of the time |
+| C7 | **P2 ablation grid runner** (reference × band × tempo term × mapping) | L | 🟡 v0 (tempo × mapping) written, not pushed | One command reproduces the table; each cell has a CI |
 | C8 | **P1 reproduction**: RehabHub within-participant split vs LOSO, per condition | M | ⬜ | Table showing the gap between the two splits, per condition |
 | C9 | Demo v0: live webcam loop with angle, rep count and last rep's score | S | ⬜ | Runs on the laptop webcam; prints a score after each rep |
 
@@ -134,6 +134,10 @@ Legend: ✅ done (merged into `main`) · 🟡 in progress or in review · ⬜ no
 C3 coverage is 0.986–0.996 in every row. **The mock is too easy:** C3 sits at the 1.000 ceiling almost everywhere, so C7 variants cannot be told apart on it. Meaningful P2 differences will need real data (or a harder mock).
 
 **Leak test (labels shuffled within subject, before fitting; pass = mean 0.5 ± 0.05, fixed in advance):** C3 LOSO 0.501 ✅, 1-NN LOSO 0.492 ✅, **1-NN with a deliberate leak 1.000 → caught ✅**, but **C3 with the same deliberate leak 0.506 → passes**. Lesson: the test is sensitive to a scorer that memorises reps, but blind to a leak into a smooth model like C3 (a few means and one covariance cannot memorise a subject). So for C3, passing the shuffle test is weak evidence; its real protection is structural (the scorer refuses to score a training subject, and tests prove impaired training reps do not change the fit).
+
+**C6 result (mock, LOSO, s2, 14 subjects, 2,000 subject resamples, seed 0):** C3 − RehabHub paired AUROC differences exclude 0 for slow (+0.45), trunk_lean (+0.39 / +0.45), elbow_bend (+0.43 / +0.37) and band (+0.23 / +0.02); not for hike (−0.015 [−0.072, +0.036]). Test-retest of subject mean normal scores: RehabHub ICC(2,1) 0.67, MDC95 11.6 points; C3 ICC 0.75, MDC95 22.0 points. Synthetic check: the 95 % subject-bootstrap CI covered a known AUROC 94.7 % of the time (150 simulated studies, 14 subjects).
+
+**C7 v0 result (mock; reference and alignment held fixed):** the tempo term is the factor that matters. Slow 2x AUROC goes from 0.52–0.56 (shape only, any mapping) to 1.000 with `duration_ratio`; adding time-to-peak adds nothing on the mock. The three mappings (z100, LW + ECDF, GMM) are indistinguishable here because the mock is at the ceiling. Reference and alignment wait for the per-fold DTW template; the AUROC-by-factor plot (v2) is still to do.
 
 **Real data (G1, P001, 3 clips) – known gap:** `trunk_lean_deg` is NaN on 100 % of frames and `elbow_deg` is valid on only 0–5 %, so the C3 scorer as written would abstain on every real rep. The feature set must depend on what the pipeline provides (and be recorded in the model). To do before G3.
 
