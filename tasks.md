@@ -350,7 +350,7 @@ Rep counts are right. Slow is about 1.9× normal, and rom_cap reaches about half
 
 **Mocks (truth as reference):** v1 count MAE 0, F1 1.0 on all 7 mocks; v0 F1 0.92 because it finds 0 of 10 reps on low_rom. Boundary error median |e| 10–13 ms.
 
-**Real clips:** waiting on B9 labels. With one rep per G1 clip the counts say little; boundary error is the useful number there.
+**Real clips (G1, final labels):** count right on all 3 clips; the 4 boundaries known on both sides are all within ±67 ms (starts +54, +11, −11 ms; T_01 end −66 ms). T_02/T_05 ends are outside the clip, so end timing is tested on one rep only. Adastra reproduced this and approved PR #3 (2026-11-24). With one rep per clip the counts say little; boundary error is the useful number.
 
 ## Decisions log
 
@@ -380,3 +380,6 @@ Rep counts are right. Slow is about 1.9× normal, and rom_cap reaches about half
 | 2026-11-22 | G2 dry run: real G1 clips segmented on `theta_v_deg` with practice-clip calibration; 1/1/1 reps |
 | 2026-11-22 | B7 compensation needs ≥ 50 % valid frames per rep; label tool gets `--block` for multi-clip frames files |
 | 2026-11-22 | B8 harness: IoU ≥ 0.5 one-to-one matching; both segmenters compared per block and pooled |
+| 2026-11-24 | PR #3 (B7, B8, B9, angle input) approved by Adastra; G2 passed (preliminary, rule-aided) |
+| 2026-11-25 | PR #3 merged by B without comment; tilt, `rep_curves` angle and #12 gap fix go in a separate small PR #15 |
+| 2026-11-25 | Schema v2 (#14): keep `angle_col` as the angle-provenance name; missing values NaN, never 0 |
