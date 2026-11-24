@@ -1,6 +1,6 @@
 # Member B: What We Did and Why
 
-Last updated: 2026-11-18. Status of every task is in `task_status.md`; this file explains the work behind it.
+Last updated: 2026-11-21. Status of every task is in `task_status.md`; this file explains the work behind it.
 
 ## Setup
 
@@ -272,7 +272,85 @@ So a capped or low-range rep will look less smooth from noise alone. This matter
 
 - `dtw_dist`, `dtw_band_frac`, `ref_id`: need a template fitted on training subjects only, so they're computed inside C's leave-one-subject-out loop using B4/B5 functions.
 - `valid_frame_frac`, `rep_conf`: need A's confidence flags.
-- Compensation features: B7.
+- Compensation features: B7 (done, below).
+
+## B7: compensation features
+
+**File:** `neuroflow/segmentation/features.py` (`rep_window_extreme`, `COMPENSATION`, added to `rep_features()`) · **Test:** `python -m pytest tests/test_features.py`
+
+**Idea:** no geometry here. A4 writes one value per frame for `trunk_lean_deg`, `elbow_deg` and `hike_ratio`. B7 reduces each one to a single number per rep between the 5 % boundaries, the same windowing as `peak_rom()`.
+
+| Column | Per rep | Note |
+| --- | --- | --- |
+| `max_trunk_lean_deg` | max of \|lean\| | absolute value: how A4 signs lean is still open (ask A) |
+| `min_elbow_deg` | min | 180° = straight arm |
+| `max_hike_ratio` | max | exploratory (weak evidence) |
+
+**Details:** each signal is smoothed first (`segment.smooth`), because the max of raw noise is biased upward. NaN frames are put back after smoothing, so a rep with no valid frames gives NaN instead of an interpolated value. A column missing from frames (e.g. A4 v0) gives NaN, never 0. The literature flags (5.2°, 153.4°, 0.174) belong to C4, not here.
+
+**New mocks (B1 extension):** `elbow_30` (elbow 175° → ~145° at each peak) and `hike` (hike → ~0.20), named after C's blocks. Same seed and no extra random draws, so the five older mocks are byte-identical and θ_HT is identical to normal.
+
+**Results (B3 segmenter):** normal 0.8° / 173.7° / 0.012; leaning lean 12.3°; elbow_30 elbow 144.6°; hike 0.203. Each mock moves only its own feature.
+
+## B9: manual labelling helper
+
+**File:** `neuroflow/segmentation/label_tool.py` · **Run:** `python -m neuroflow.segmentation.label_tool CLIP --frames FRAMES.parquet --labeler NAME` (no clip: self-test) · **Test:** `python -m pytest tests/test_label_tool.py`
+
+**How:** OpenCV window. a/d step 1 frame, j/l 10 frames, space play, m marks the next point (start → peak → end), u undo, s save, q save and quit. Click the timeline strip at the bottom to jump. The strip shows θ_HT if the frames file has it. Re-opening a clip resumes from its labels CSV.
+
+**Labelling rule:** start/end at rest + 5 % of the rep's range, not first visible movement (same as B1/B2). Leave out a rep you can't judge.
+
+**Times:** with the clip's `frames.parquet`, video frame i gets `t_capture_ms` of `frame_idx` i, the segmenter's clock. Without it, i × 1000 / fps, flagged `time_source = video_fps` and not comparable with segmenter output.
+
+**Output:** CSV with `rep_idx, t_start_ms, t_peak_ms, t_end_ms, subject_id, session_id, block_id, labeler, time_source`. `load_labels()` drops unfinished reps, checks start < peak < end and no overlap, and loads straight into `segment.validate(frames, labels, reps=...)` for B8.
+
+**Not yet tried:** the interactive window. On this WSL box OpenCV's Qt window needs `sudo apt install -y libsm6 libice6`. Logic, timing, drawing and the B8 hand-off are tested.
+
+## Angle input: theta_ht_deg or theta_v_deg (issue #4)
+
+**Why:** A's seated V4 clips have no usable hip landmarks, so `theta_ht_deg` (arm vs trunk) is NaN on every frame and only `theta_v_deg` (arm vs image vertical) has values. The unchanged segmenter found 0 reps on them.
+
+**What changed:** `angle_col` parameter (default `theta_ht_deg`, allowed `theta_v_deg`) on `segment_fixed`, `calibrate`, `segment_reps`, `rep_features`, `rep_matrix`, and `--angle` on the label tool.
+- The reps table gets an `angle_col` column (new reps.parquet column, C needs to add it to the contract).
+- `rep_features` / `rep_matrix` read the angle from the reps; passing a different one raises, so two angle definitions can't be mixed.
+- A missing or all-NaN angle column raises a clear error instead of returning 0 reps.
+- Calibration must be done on the same angle.
+
+**Known limit:** trunk lean adds to `theta_v_deg`. On the leaning mock, range reads ~12° higher than with `theta_ht_deg` (tested). Without hips there's nothing to correct it with.
+
+**Threshold check** (`docs/v4_threshold_check.py`, local): A's six V4 **practice** clips (not the held-out T clips), one rep each, 24–29 fps. Calibrating on the three complete ones gives rest 11.6°, range 79.8° (mock: 10°, 79.6°). B2 (30°/20°) and B3 (20 %/15 %) each find exactly 1 rep in all six, including the three short raises (peaks 51–75°). No threshold change needed. Our start is 250–430 ms before A's detector start because A's rule is 15° above rest held for 180 ms, ours is 5 % of range; the two aren't comparable.
+
+**Note:** real fps is 24–29, not 30, so ±67 ms is about 1.7 frames, not 2.
+
+## G2 dry run on real data (2026-11-22)
+
+**Data:** Adastra's G1 package on Google Drive, saved in `data/g1/` (gitignored, personal data). All 20 files match `manifest.json`. Three seated right-arm clips from one participant (P001/S001): T_01 normal (240 frames), T_02 slow (366), T_05 insufficient elevation, coded `rom_cap` (143). 24–28 fps. `theta_v_deg` has values on every frame.
+
+**Run:** `python docs/g2_real_run.py data/g1/practice` (local). B3 on `theta_v_deg`, calibrated on Adastra's three complete **practice** reps (rest 11.6°, range 79.8°), never on the T clips.
+
+| Clip | Reps (B2 / B3) | Duration | Time to peak | Range | Personal range | SPARC |
+| --- | --- | --- | --- | --- | --- | --- |
+| T_01 normal | 1 / 1 | 6.94 s | 0.53 | 82.2° | +0.03 | −4.13 |
+| T_02 slow | 1 / 1 | 12.94 s | 0.56 | 74.1° | −0.07 | −5.86 |
+| T_05 rom_cap | 1 / 1 | 3.91 s | 0.47 | 41.6° | −0.48 | −3.83 |
+
+Rep counts are right. Slow is about 1.9× normal, and rom_cap reaches about half the personal range, as expected. Real reps are much slower than the mocks (7 s vs 2 s) and SPARC is more negative (−4 to −6 vs −2.7).
+
+**Compensation on real data:** trunk lean and hike are NaN by design (no hips, no hike definition). Elbow is NaN on 95–100 % of frames (wrist out of frame or low visibility), so `min_elbow_deg` comes from 13 frames (T_01), 0 (T_02, NaN) and 1 (T_05). **Fixed (2026-11-22):** B7 now needs at least 50 % of the rep's frames valid (`COMP_MIN_VALID_FRAC`, our choice, to tune), so all three clips give NaN elbow instead of 13-frame or 1-frame values.
+
+**Next for G2:** label the three clips with B9 (`--block T_01` picks one clip from Adastra's combined file) (the window needs `sudo apt install -y libsm6 libice6`), compare boundaries, then ask Adastra to review.
+
+## B8: S3 study harness
+
+**File:** `neuroflow/segmentation/s3_study.py` · **Run:** `python -m neuroflow.segmentation.s3_study` (mocks vs truth) or `--labels DIR --frames F --rest R --rom M --angle theta_v_deg` (real clips, labels as `DIR/<block_id>_labels.csv`) · **Test:** `python -m pytest tests/test_s3_study.py`
+
+**Matching:** each predicted rep pairs with at most one reference rep, greedily by highest IoU of the [start, end] windows; a hit needs IoU ≥ 0.5 (common event-detection choice, not from our sources). Unknown boundaries never match.
+
+**Metrics:** per block: count error, hits, precision, recall, F1, mean IoU, signed start/peak/end errors. Per segmenter: count MAE, exact-count rate, off-by-one rate, pooled P/R/F1, boundary error mean / SD / median |e| / share within ±67 ms.
+
+**Mocks (truth as reference):** v1 count MAE 0, F1 1.0 on all 7 mocks; v0 F1 0.92 because it finds 0 of 10 reps on low_rom. Boundary error median |e| 10–13 ms.
+
+**Real clips:** waiting on B9 labels. With one rep per G1 clip the counts say little; boundary error is the useful number there.
 
 ## Decisions log
 
@@ -292,3 +370,13 @@ So a capped or low-range rep will look less smooth from noise alone. This matter
 | 2026-11-18 | B5: templates on (θ − rest_ref) / rom_ref, 60 samples; both mean and DBA kept, choice left to P2 |
 | 2026-11-18 | B5 committed and pushed (`14fb690`, tracking `e16dacc`) |
 | 2026-11-18 | B6: range = excursion from rest; personal range = rom / rom_ref − 1; SPARC on whole rep; duration kept absolute |
+| 2026-11-19 | PR #1 (B1–B6) approved by A and merged |
+| 2026-11-20 | PR #2 (C1–C2) approved and merged by B without comments; known issues kept locally |
+| 2026-11-20 | B7: one windowed max/min helper; lean taken as absolute until A confirms its sign |
+| 2026-11-21 | B9: labels on the capture clock from frames.parquet; video fps fallback flagged |
+| 2026-11-21 | Issue #4: agreed with A on a configurable angle (`theta_v_deg` for V4 clips) and a separate rest-corrected shoulder-tilt feature; data shared outside git |
+| 2026-11-21 | `angle_col` added and recorded in reps; thresholds unchanged after checking on A's practice clips |
+| 2026-11-21 | Reps output gains `schema_version`, `block_id`, `side` in 7willA's column order; G1 data received from Adastra on Google Drive |
+| 2026-11-22 | G2 dry run: real G1 clips segmented on `theta_v_deg` with practice-clip calibration; 1/1/1 reps |
+| 2026-11-22 | B7 compensation needs ≥ 50 % valid frames per rep; label tool gets `--block` for multi-clip frames files |
+| 2026-11-22 | B8 harness: IoU ≥ 0.5 one-to-one matching; both segmenters compared per block and pooled |

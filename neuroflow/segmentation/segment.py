@@ -16,6 +16,10 @@ Two steps:
   2. Boundaries. From each threshold crossing, walk outward until the smoothed
      angle drops to rest + BOUNDARY_FRAC * range, then interpolate linearly
      between the two frames on either side of that level.
+     The rest level comes only from where the arm is still (still_rest). If
+     the clip ends while the arm is still coming down, the end uses the rest
+     before the rep; if that level isn't reached before the clip ends, the end
+     is unknown (NaN): the rep still counts, its end is not guessed.
 
 Methods:
     "pct_range"  the definition above (default)
@@ -54,6 +58,9 @@ T_LOW = 20.0            # deg, leave a rep below this
 SMOOTH_WINDOW_S = 0.25  # Savitzky-Golay window (A5 default); swap for A's smooth_savgol later
 SMOOTH_ORDER = 2
 MAX_SEARCH_S = 1.5      # how far before/after a crossing to look for rest
+REST_STABLE_S = 0.5     # rest must be still over this long (the part farthest from the rep)
+REST_MAX_SLOPE = 3.0    # deg/s; faster than this the arm is still moving, not at rest
+                        # (G1 clips end while still falling at about 10 deg/s)
 TOLERANCE_MS = 67.0     # golden criterion: +-2 frames at 30 fps on start and end
 METHODS = ("pct_range", "crossing")
 
@@ -64,6 +71,46 @@ MIN_PROM_FRAC = 0.30    # a rep must rise at least 30% of rom_ref above rest
 MIN_DUR_S = 0.4         # and last at least 0.4 s between its boundaries
 
 REST, RISING, PEAK, RETURNING = "REST", "RISING", "PEAK", "RETURNING"
+
+# Which elevation angle to segment on (agreed with A in issue #4, 2026-11-21):
+#   theta_ht_deg  arm vs trunk (needs hip landmarks); the default, used by the mocks
+#   theta_v_deg   arm vs image vertical (hip-free; A's V4 seated clips). Trunk lean
+#                 adds to it, so it reads higher when the user leans.
+ANGLE_COL = "theta_ht_deg"
+ANGLE_COLS = ("theta_ht_deg", "theta_v_deg")
+
+
+def angle_signal(frames, angle_col=ANGLE_COL):
+    """(frames sorted by time, t_ms, raw angle) for the chosen angle column.
+    Fails loudly if the column is unknown, missing or has no values, instead of
+    letting the segmenter quietly find 0 reps."""
+    if angle_col not in ANGLE_COLS:
+        raise ValueError(f"angle_col must be one of {ANGLE_COLS}, got {angle_col!r}")
+    if angle_col not in frames.columns or frames[angle_col].isna().all():
+        raise ValueError(f"{angle_col} has no values in these frames; "
+                         f"try another angle_col (one of {ANGLE_COLS})")
+    frames = frames.sort_values("t_capture_ms")
+    return frames, frames["t_capture_ms"].to_numpy(dtype=float), frames[angle_col].to_numpy(dtype=float)
+
+
+def reps_angle_col(reps, angle_col=None):
+    """Angle column for downstream steps: the one the reps were segmented on.
+    Passing a different one raises, so two angle definitions are never mixed.
+    Read from the angle_col column, or, for a table with 0 reps, from its metadata
+    (reps.attrs). An empty table that records neither needs angle_col passed."""
+    recorded = reps["angle_col"].dropna().unique() if "angle_col" in reps.columns else []
+    if len(recorded) == 0 and reps.attrs.get("angle_col"):
+        recorded = [reps.attrs["angle_col"]]
+    if len(recorded) > 1:
+        raise ValueError(f"reps mix angle columns {list(recorded)}")
+    if len(recorded) == 1:
+        if angle_col is not None and angle_col != recorded[0]:
+            raise ValueError(f"reps were segmented on {recorded[0]}, not {angle_col}")
+        return recorded[0]
+    if angle_col is None and len(reps) == 0:
+        raise ValueError("this reps table has 0 reps and doesn't record its angle; "
+                         f"pass angle_col (one of {ANGLE_COLS})")
+    return angle_col or ANGLE_COL
 
 
 def smooth(t_ms, x, window_s=SMOOTH_WINDOW_S, order=SMOOTH_ORDER):
@@ -111,11 +158,35 @@ def detect(theta_s, t_high=T_HIGH, t_low=T_LOW):
     return reps
 
 
-def rest_level(theta_s, lo, hi, t_low=T_LOW):
-    """Median smoothed angle of the frames in [lo, hi) that are below t_low (the rest)."""
-    seg = theta_s[lo:hi]
-    seg = seg[seg < t_low]
-    return float(np.median(seg)) if len(seg) >= 3 else None
+def still_rest(theta_s, t_ms, lo, hi, t_low=T_LOW, side="after"):
+    """
+    Rest level next to a rep, from where the arm is actually still: the
+    REST_STABLE_S stretch of rest frames (below t_low) in [lo, hi) that is
+    nearest to the rep and whose slope is at most REST_MAX_SLOPE. side="after"
+    scans away from the rep forwards ([lo, hi) starts at the rep's end), "before"
+    backwards. Returns the median of that stretch, or None if there is none
+    (e.g. the clip ends while the arm is still coming down).
+    """
+    idx = np.arange(lo, hi)
+    idx = idx[theta_s[lo:hi] < t_low]
+    if len(idx) < 3:
+        return None
+    if side == "before":
+        idx = idx[::-1]
+    span = REST_STABLE_S * 1000.0
+    dt = np.median(np.diff(t_ms))
+    tt = t_ms[idx]
+    for k in range(len(idx)):
+        win = np.abs(tt - tt[k]) <= span
+        win &= (tt >= tt[k]) if side == "after" else (tt <= tt[k])
+        seg = idx[win]
+        if len(seg) < 3 or abs(t_ms[seg[-1]] - t_ms[seg[0]]) < span - 1.5 * dt:
+            break                                   # ran out of frames
+        if np.any(np.abs(np.diff(seg)) != 1):
+            continue                                # stretch crosses a non-rest frame
+        if abs(np.polyfit(t_ms[seg] / 1000.0, theta_s[seg], 1)[0]) <= REST_MAX_SLOPE:
+            return float(np.median(theta_s[seg]))
+    return None
 
 
 def cross_time(t_ms, x, i_a, i_b, level):
@@ -145,11 +216,17 @@ def boundaries(theta_s, t_ms, reps, method="pct_range", frac=BOUNDARY_FRAC, t_lo
         hi = min(next_up, i_down + max_n)
 
         peak = theta_s[i_peak]
-        rest_s = rest_level(theta_s, lo, i_up, t_low)
-        rest_e = rest_level(theta_s, i_down, hi, t_low)
-        if rest_s is None or rest_e is None:
-            out.append((np.nan, t_ms[i_peak], np.nan))  # no rest seen: boundary unknown
+        # Rest only from where the arm is actually still, looking as far as the
+        # neighbouring rep (or the clip edge). If one side never settles (clip
+        # ends while the arm is still coming down), use the other side's rest;
+        # if neither does, the boundaries are unknown.
+        rest_s = still_rest(theta_s, t_ms, prev_end, i_up, t_low, side="before")
+        rest_e = still_rest(theta_s, t_ms, i_down, next_up, t_low, side="after")
+        if rest_s is None and rest_e is None:
+            out.append((np.nan, t_ms[i_peak], np.nan))  # no still rest seen: unknown
             continue
+        rest_s = rest_e if rest_s is None else rest_s
+        rest_e = rest_s if rest_e is None else rest_e
 
         lvl_s = rest_s + frac * (peak - rest_s)
         i = i_up
@@ -167,50 +244,62 @@ def boundaries(theta_s, t_ms, reps, method="pct_range", frac=BOUNDARY_FRAC, t_lo
     return out
 
 
-REP_COLUMNS = ["rep_id", "subject_id", "session_id", "condition", "level", "seg_method",
+REPS_SCHEMA_VERSION = 1
+# Same names and order as 7willA's reps contract (fixtures/make_mock_reps.py), plus
+# angle_col (which elevation angle was segmented; proposed in PR #3).
+REP_COLUMNS = ["schema_version", "rep_id", "subject_id", "session_id", "block_id",
+               "condition", "level", "side", "seg_method", "angle_col",
                "t_start_ms", "t_peak_ms", "t_end_ms", "duration_s"]
 
 
-def _rep_table(frames, reps, seg_method):
+def _rep_table(frames, reps, seg_method, angle_col=ANGLE_COL):
     """Build the reps.parquet timing columns from (t_start, t_peak, t_end) tuples."""
     first = frames.iloc[0]
     rows = []
     for n, (t_s, t_p, t_e) in enumerate(reps):
         rows.append({
+            "schema_version": REPS_SCHEMA_VERSION,
             "rep_id": f"{first['subject_id']}_{first['session_id']}_{first['block_id']}_{n:03d}",
             "subject_id": first["subject_id"],
             "session_id": first["session_id"],
+            "block_id": first["block_id"],
             "condition": first["condition"],
             "level": first["level"],
+            "side": first.get("side", np.nan),      # working arm, from frames.parquet
             "seg_method": seg_method,
+            "angle_col": angle_col,
             "t_start_ms": t_s,
             "t_peak_ms": t_p,
             "t_end_ms": t_e,
             "duration_s": (t_e - t_s) / 1000.0,
         })
-    return pd.DataFrame(rows, columns=REP_COLUMNS)
+    out = pd.DataFrame(rows, columns=REP_COLUMNS)
+    # Also keep the angle in the table's metadata: a block with 0 reps has no
+    # angle_col values, and downstream must not fall back to the default angle.
+    # (Survives .copy() and to_parquet / read_parquet.)
+    out.attrs["angle_col"] = angle_col
+    return out
 
 
-def _run(frames, t_high, t_low, method):
+def _run(frames, t_high, t_low, method, angle_col=ANGLE_COL):
     """Smooth, detect and place boundaries. Returns (reps, peak angles)."""
-    frames = frames.sort_values("t_capture_ms")
-    t = frames["t_capture_ms"].to_numpy(dtype=float)
-    theta_s = smooth(t, frames["theta_ht_deg"].to_numpy())
+    frames, t, theta = angle_signal(frames, angle_col)
+    theta_s = smooth(t, theta)
     det = detect(theta_s, t_high, t_low)
     reps = boundaries(theta_s, t, det, method, t_low=t_low)
     return frames, reps, [float(theta_s[p]) for _, p, _ in det]
 
 
-def segment_fixed(frames, method="pct_range", t_high=T_HIGH, t_low=T_LOW):
+def segment_fixed(frames, method="pct_range", t_high=T_HIGH, t_low=T_LOW, angle_col=ANGLE_COL):
     """
     B2: segment one block of frames.parquet into reps with fixed thresholds (deg).
     Returns a DataFrame with the reps.parquet timing columns.
     """
-    frames, reps, _ = _run(frames, t_high, t_low, method)
-    return _rep_table(frames, reps, f"fsm_fixed_{method}")
+    frames, reps, _ = _run(frames, t_high, t_low, method, angle_col)
+    return _rep_table(frames, reps, f"fsm_fixed_{method}", angle_col)
 
 
-def calibrate(frames):
+def calibrate(frames, angle_col=ANGLE_COL):
     """
     Estimate (rest_ref, rom_ref) in degrees from a calibration block (~10 normal reps).
     Self-scaling, so it also works for a user with a small range:
@@ -219,8 +308,8 @@ def calibrate(frames):
       2. detect reps with thresholds at 50% / 40% of that rough range;
       3. rom_ref = median rep peak - rest.
     """
-    t = frames.sort_values("t_capture_ms")["t_capture_ms"].to_numpy(dtype=float)
-    theta_s = smooth(t, frames.sort_values("t_capture_ms")["theta_ht_deg"].to_numpy())
+    _, t, theta = angle_signal(frames, angle_col)
+    theta_s = smooth(t, theta)
     rest = float(np.percentile(theta_s, 10))
     rough = float(np.percentile(theta_s, 98)) - rest
     det = detect(theta_s, rest + 0.5 * rough, rest + 0.4 * rough)
@@ -230,17 +319,18 @@ def calibrate(frames):
     return rest, rom
 
 
-def segment_reps(frames, rom_ref, rest_ref=None, method="pct_range"):
+def segment_reps(frames, rom_ref, rest_ref=None, method="pct_range", angle_col=ANGLE_COL):
     """
     B3: segment one block with thresholds scaled to the user's calibrated range.
-    rom_ref, rest_ref come from calibrate() on a separate calibration block; if
-    rest_ref is None it is estimated from this block (10th percentile).
+    rom_ref, rest_ref come from calibrate() on a separate calibration block, on the
+    same angle_col; if rest_ref is None it is estimated from this block (10th percentile).
     """
     if rest_ref is None:
-        rest_ref = float(np.percentile(frames["theta_ht_deg"].dropna(), 10))
+        _, _, theta = angle_signal(frames, angle_col)
+        rest_ref = float(np.nanpercentile(theta, 10))
     t_high = rest_ref + START_FRAC * rom_ref
     t_low = rest_ref + END_FRAC * rom_ref
-    frames, reps, peaks = _run(frames, t_high, t_low, method)
+    frames, reps, peaks = _run(frames, t_high, t_low, method, angle_col)
 
     keep = []
     for (t_s, t_p, t_e), pk in zip(reps, peaks):
@@ -249,7 +339,7 @@ def segment_reps(frames, rom_ref, rest_ref=None, method="pct_range"):
         if not np.isnan(t_s) and not np.isnan(t_e) and (t_e - t_s) / 1000.0 < MIN_DUR_S:
             continue                                    # too short to be a rep
         keep.append((t_s, t_p, t_e))
-    return _rep_table(frames, keep, f"fsm_rom_{method}")
+    return _rep_table(frames, keep, f"fsm_rom_{method}", angle_col)
 
 
 def compare_to_truth(reps, truth):

@@ -6,7 +6,8 @@ import pandas as pd
 import pytest
 
 from neuroflow.segmentation.features import (
-    peak_rom, rep_duration_s, rep_features, rep_speed, sparc, time_to_peak_ratio)
+    peak_rom, rep_duration_s, rep_features, rep_speed, rep_window_extreme, sparc,
+    time_to_peak_ratio)
 from neuroflow.segmentation.segment import (
     BOUNDARY_FRAC, TOLERANCE_MS, calibration_refs, segment_reps, smooth)
 
@@ -143,6 +144,137 @@ def test_rep_features_propagates_unknown_boundaries():
     reps = pd.DataFrame({"t_start_ms": [np.nan], "t_peak_ms": [1_003_000.0], "t_end_ms": [1_004_000.0]})
     out = rep_features(frames, reps, 10.0, 80.0)
     assert out[["duration_s", "time_to_peak_ratio", "rom_peak_deg", "sparc"]].isna().all().all()
+
+
+# ---- 5. compensation helper (B7) ----
+
+T5 = np.array([0.0, 100.0, 200.0, 300.0, 400.0])
+
+
+def test_window_extreme_hand_examples():
+    # the worked examples from the B7 briefing
+    lean = [0.3, 4.1, 11.8, 6.0, 0.5]
+    elbow = [176.0, 168.0, 151.0, 170.0, 174.0]
+    assert rep_window_extreme(T5, lean, 0.0, 400.0, "max") == pytest.approx(11.8)
+    assert rep_window_extreme(T5, elbow, 0.0, 400.0, "min") == pytest.approx(151.0)
+
+
+def test_window_extreme_ignores_frames_outside_the_rep():
+    sig = [99.0, 1.0, 2.0, 3.0, 99.0]          # spikes just outside [100, 300]
+    assert rep_window_extreme(T5, sig, 100.0, 300.0, "max") == pytest.approx(3.0)
+    assert rep_window_extreme(T5, sig, 100.0, 300.0, "min") == pytest.approx(1.0)
+
+
+def test_window_extreme_nan_handling():
+    sig = np.array([1.0, np.nan, 5.0, np.nan, 2.0])
+    assert rep_window_extreme(T5, sig, 0.0, 400.0, "max") == pytest.approx(5.0)   # skips NaN frames
+    assert np.isnan(rep_window_extreme(T5, sig, np.nan, 400.0, "max"))           # unknown boundary
+    assert np.isnan(rep_window_extreme(T5, sig, 100.0, 100.0, "max"))            # only a NaN frame inside
+    assert np.isnan(rep_window_extreme(T5, sig, 1000.0, 2000.0, "min"))          # no frame inside
+
+
+def test_window_extreme_min_valid_frac():
+    sig = np.array([170.0, np.nan, np.nan, np.nan, 160.0])        # 2 of 5 frames valid
+    assert rep_window_extreme(T5, sig, 0.0, 400.0, "min") == pytest.approx(160.0)
+    assert np.isnan(rep_window_extreme(T5, sig, 0.0, 400.0, "min", min_valid_frac=0.5))
+    assert rep_window_extreme(T5, sig, 0.0, 400.0, "min", min_valid_frac=0.4) == pytest.approx(160.0)
+
+
+def test_rep_features_needs_half_the_frames_valid():
+    """Like the G1 clips: elbow valid on only a few frames of the rep -> NaN, not a 1-frame min."""
+    frames = pd.read_parquet(os.path.join(FX, "mock_frames_elbow_30.parquet"))
+    rest, rom = CALIB["mock01"]
+    reps = segment_reps(frames, rom, rest)
+    sparse = frames.copy()
+    keep = np.zeros(len(frames), bool)
+    keep[::3] = True                                               # ~33 % valid
+    sparse.loc[~keep, "elbow_deg"] = np.nan
+    assert rep_features(sparse, reps, rest, rom)["min_elbow_deg"].isna().all()
+    half = frames.copy()
+    keep = np.zeros(len(frames), bool)
+    keep[::3] = True
+    keep[1::3] = True                                              # ~67 % valid
+    half.loc[~keep, "elbow_deg"] = np.nan
+    assert not rep_features(half, reps, rest, rom)["min_elbow_deg"].isna().any()
+
+
+def test_window_extreme_rejects_bad_how():
+    with pytest.raises(ValueError):
+        rep_window_extreme(T5, np.ones(5), 0.0, 400.0, "mean")
+
+
+@pytest.mark.parametrize("variant,col,how,expect,normal_expect", [
+    ("leaning", "trunk_lean_deg", "max", 12.0, 0.0),
+    ("elbow_30", "elbow_deg", "min", 145.0, 175.0),
+    ("hike", "hike_ratio", "max", 0.20, 0.0),
+])
+def test_window_extreme_on_mocks(variant, col, how, expect, normal_expect):
+    """On the truth boundaries, each compensation mock gives its planted size; normal does not."""
+    def per_rep(v):
+        f = pd.read_parquet(os.path.join(FX, f"mock_frames_{v}.parquet"))
+        tr = pd.read_csv(os.path.join(FX, f"mock_frames_{v}_truth.csv"))
+        t = f["t_capture_ms"].to_numpy()
+        sig = smooth(t, f[col].to_numpy())
+        return np.array([rep_window_extreme(t, sig, r.t_start_ms, r.t_end_ms, how)
+                         for r in tr.itertuples()])
+    tol = 0.1 * abs(expect - normal_expect)   # 10% of the planted effect
+    assert per_rep(variant).mean() == pytest.approx(expect, abs=tol)
+    assert per_rep("normal").mean() == pytest.approx(normal_expect, abs=tol)
+
+
+# ---- 6. compensation integration (B7) ----
+
+COMP = ["max_trunk_lean_deg", "min_elbow_deg", "max_hike_ratio"]
+
+
+def test_rep_features_compensation_on_mocks():
+    """Each compensation mock moves only its own feature (the plan's B7 acceptance check)."""
+    normal, _ = _mock_features("normal")
+    leaning, _ = _mock_features("leaning")
+    elbow, _ = _mock_features("elbow_30")
+    hike, _ = _mock_features("hike")
+    for f in (normal, leaning, elbow, hike):
+        assert not f[COMP].isna().any().any()
+    assert leaning["max_trunk_lean_deg"].mean() == pytest.approx(12.0, abs=1.0)
+    assert normal["max_trunk_lean_deg"].mean() < 2.0
+    assert elbow["min_elbow_deg"].mean() == pytest.approx(145.0, abs=1.5)
+    assert normal["min_elbow_deg"].mean() > 172.0
+    assert hike["max_hike_ratio"].mean() == pytest.approx(0.20, abs=0.02)
+    assert normal["max_hike_ratio"].mean() < 0.03
+    # isolation: a compensation leaves the other two at their normal values
+    for col in ("min_elbow_deg", "max_hike_ratio"):
+        assert leaning[col].mean() == pytest.approx(normal[col].mean(), rel=0.05)
+    assert elbow["max_trunk_lean_deg"].mean() == pytest.approx(normal["max_trunk_lean_deg"].mean())
+    assert hike["min_elbow_deg"].mean() == pytest.approx(normal["min_elbow_deg"].mean())
+
+
+def test_rep_features_lean_is_absolute():
+    frames = pd.read_parquet(os.path.join(FX, "mock_frames_leaning.parquet"))
+    flipped = frames.assign(trunk_lean_deg=-frames["trunk_lean_deg"])
+    rest, rom = CALIB["mock01"]
+    reps = segment_reps(frames, rom, rest)
+    a = rep_features(frames, reps, rest, rom)["max_trunk_lean_deg"]
+    b = rep_features(flipped, reps, rest, rom)["max_trunk_lean_deg"]
+    assert np.allclose(a, b)
+
+
+def test_rep_features_compensation_missing_is_nan():
+    frames = pd.read_parquet(os.path.join(FX, "mock_frames_normal.parquet"))
+    rest, rom = CALIB["mock01"]
+    reps = segment_reps(frames, rom, rest)
+    # column absent (A4 v0) -> NaN
+    out = rep_features(frames.drop(columns=["hike_ratio"]), reps, rest, rom)
+    assert out["max_hike_ratio"].isna().all() and not out["min_elbow_deg"].isna().any()
+    # every elbow frame of rep 0 missing -> NaN for that rep only, not an interpolated value
+    t = frames["t_capture_ms"]
+    r0 = reps.iloc[0]
+    gap = frames.copy()
+    gap.loc[(t >= r0["t_start_ms"]) & (t <= r0["t_end_ms"]), "elbow_deg"] = np.nan
+    out = rep_features(gap, reps, rest, rom)
+    assert np.isnan(out["min_elbow_deg"].iloc[0]) and not out["min_elbow_deg"].iloc[1:].isna().any()
+    # unknown boundary -> NaN
+    unk = pd.DataFrame({"t_start_ms": [np.nan], "t_peak_ms": [1_003_000.0], "t_end_ms": [1_004_000.0]})
+    assert rep_features(frames, unk, rest, rom)[COMP].isna().all().all()
 
 
 # ---- helpers ----
