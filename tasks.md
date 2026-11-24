@@ -383,3 +383,5 @@ Rep counts are right. Slow is about 1.9× normal, and rom_cap reaches about half
 | 2026-11-24 | PR #3 (B7, B8, B9, angle input) approved by Adastra; G2 passed (preliminary, rule-aided) |
 | 2026-11-25 | PR #3 merged by B without comment; tilt, `rep_curves` angle and #12 gap fix go in a separate small PR #15 |
 | 2026-11-25 | Schema v2 (#14): keep `angle_col` as the angle-provenance name; missing values NaN, never 0 |
+| 2026-11-25 | Reps schema v2 drafted on `b-schema-v2-draft`: a missing `block_role` in v2 frames is an error, never guessed from block names |
+| 2026-11-25 | PR #13 (C5–C8): comment review only; real-data scorer fixes tracked in #14, not in the PR |
