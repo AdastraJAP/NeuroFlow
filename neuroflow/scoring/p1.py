@@ -35,12 +35,13 @@ Run (from the repo root):
 import numpy as np
 import pandas as pd
 
+from neuroflow.scoring.roles import normal_test_mask, session_mask, test_mask
+
 SEED = 0
-EVAL_BLOCK = "normal_test"
-EVAL_SESSION = "s2"
+EVAL_SESSION = "s2"       # the mock; pass session=None on real data (all sessions)
 
 
-def within_split(reps, folds, seed=SEED):
+def within_split(reps, folds, seed=SEED, session=EVAL_SESSION):
     """
     rep_ids of the test-normal half: for each development subject, half of its
     session-2 normal_test reps (shuffled with a fixed seed). Everything else that
@@ -48,8 +49,8 @@ def within_split(reps, folds, seed=SEED):
     """
     rng = np.random.default_rng(seed)
     dev = set(folds.loc[folds["split"] == "train", "subject_id"])
-    pool = reps[reps["subject_id"].isin(dev) & (reps["session_id"] == EVAL_SESSION)
-                & (reps["block_id"] == EVAL_BLOCK) & (reps["condition"] == "normal")]
+    pool = reps[reps["subject_id"].isin(dev) & session_mask(reps, session)
+                & normal_test_mask(reps)]
     test_normal = []
     for _, g in pool.groupby("subject_id", sort=True):
         ids = rng.permutation(g["rep_id"].to_numpy())
@@ -57,29 +58,39 @@ def within_split(reps, folds, seed=SEED):
     return set(test_normal)
 
 
-def run_within(reps, folds, fit, score, test_normal):
-    """Fit once on every development subject's reference reps, score all in-sample."""
+def run_within(reps, folds, fit, score, test_normal, curves=None, dtw_method="dba"):
+    """
+    Fit once on every development subject's reference reps, score all in-sample.
+    With curves, the DTW template is built from those reference reps too, so it
+    contains each person's own normal reps: RehabHub's main leak.
+    """
     dev_subjects = set(folds.loc[folds["split"] == "train", "subject_id"])
     dev = reps[reps["subject_id"].isin(dev_subjects)]
-    model = fit(dev[~dev["rep_id"].isin(test_normal)])
+    reference = dev[~dev["rep_id"].isin(test_normal)]
+    if curves is not None:
+        from neuroflow.segmentation.dtw_feature import add_dtw_dist
+        dev = add_dtw_dist(dev, curves, reference, method=dtw_method)
+        reference = dev[~dev["rep_id"].isin(test_normal)]
+    model = fit(reference)
     return score(model, dev, fold_id=-1, allow_in_sample=True)
 
 
-def eval_reps(reps, test_normal):
-    """The reps both arms are judged on: the test-normal half + every s2 condition rep."""
-    imp = reps[(reps["session_id"] == EVAL_SESSION) & (reps["condition"] != "normal")]
+def eval_reps(reps, test_normal, session=EVAL_SESSION):
+    """The reps both arms are judged on: the test-normal half + every test condition rep."""
+    imp = reps[session_mask(reps, session) & (reps["condition"] != "normal") & test_mask(reps)]
     return set(test_normal) | set(imp["rep_id"])
 
 
-def p1_table(reps, folds, fit, score, n_boot=2000, seed=SEED):
+def p1_table(reps, folds, fit, score, n_boot=2000, seed=SEED, session=EVAL_SESSION,
+             curves=None, dtw_method="dba"):
     """One row per (condition, level): AUROC within, AUROC LOSO, paired gap, CIs."""
     from neuroflow.scoring.harness import POSITIVE_CONTROLS, run_loso
     from neuroflow.scoring.stats import paired_auroc_diff
 
-    test_normal = within_split(reps, folds, seed)
-    keep = eval_reps(reps, test_normal)
-    within = run_within(reps, folds, fit, score, test_normal)
-    loso = run_loso(reps, folds, fit, score)
+    test_normal = within_split(reps, folds, seed, session)
+    keep = eval_reps(reps, test_normal, session)
+    within = run_within(reps, folds, fit, score, test_normal, curves, dtw_method)
+    loso = run_loso(reps, folds, fit, score, curves=curves, dtw_method=dtw_method)
 
     pairs = (reps.loc[reps["rep_id"].isin(keep) & (reps["condition"] != "normal"),
                       ["condition", "level"]].drop_duplicates()
@@ -87,7 +98,7 @@ def p1_table(reps, folds, fit, score, n_boot=2000, seed=SEED):
     rows = []
     for cond, lvl in pairs.itertuples(index=False):
         r = paired_auroc_diff(within, loso, reps, cond, lvl, n_boot=n_boot, seed=seed,
-                              session=EVAL_SESSION, keep=keep, allow_in_sample=True)
+                              session=session, keep=keep, allow_in_sample=True)
         rows.append({"condition": cond, "level": lvl,
                      "within": r["a"], "within_lo": r["a_lo"], "within_hi": r["a_hi"],
                      "loso": r["b"], "loso_lo": r["b_lo"], "loso_hi": r["b_hi"],

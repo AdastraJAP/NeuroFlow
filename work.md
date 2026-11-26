@@ -1,6 +1,6 @@
 # Member C: Wilkend's Work Plan
 
-Branch: `Wilkend` (rebased on `main`, `3a117d2`) · Owner: Wilkend Auguste · Last updated: 2026-11-23
+Branch: `Wilkend` (rebased on `main`, `3a117d2`) · Owner: Wilkend Auguste · Last updated: 2026-11-26
 
 Source documents (from Melchior, Nov 17): *Implementation Plan: Tasks, Workflow and Member Prompts*, *Research Brief: Evidence, Datasets and Architecture*, *Research Basis (3 + 3 contributions)*, and Prof. Huang's email of Nov 17 ("Re: Next meeting").
 
@@ -96,10 +96,10 @@ Legend: ✅ done (merged into `main`) · 🟡 in progress or in review · ⬜ no
 | C2 | RehabHub baseline: Z of DTW distance vs normal reps, score = 100 / max(Z, 1) | S | ✅ merged (PR #2) | Reproduces the saturation: many reps with Z < 1 all get 100 |
 | C3 | Scorer v1: standardise features → Ledoit-Wolf covariance → Mahalanobis distance → pooled ECDF → 0–100 | M | ✅ merged (PR #8) | A shifted mock group scores lower than normal; ECDF of training normals ≈ uniform |
 | C4 | P3 sub-scores: per-feature ECDF for lean, elbow, hike (and rom, tempo, shape, smooth); feedback code from the worst sub-score | M | ✅ merged (PR #8) | A lean-heavy mock rep returns feedback code "trunk" |
-| C5 | LOSO harness: fit on train subjects, score the held-out subject, AUROC per condition | M | 🟡 in review (PR #13) | AUROC ≈ 0.5 on shuffled labels; high on a clearly shifted mock |
-| C6 | Statistics: subject-level bootstrap CI, paired score difference, ICC(2,1), SEM, MDC | L | 🟡 in review (PR #13) | CI on a known synthetic effect covers the truth ≈ 95 % of the time |
-| C7 | **P2 ablation grid runner** (reference × band × tempo term × mapping) | L | 🟡 v0 (tempo × mapping) in review (PR #13) | One command reproduces the table; each cell has a CI |
-| C8 | **P1 reproduction**: RehabHub within-participant split vs LOSO, per condition | M | 🟡 v0 in review (PR #13) | Table showing the gap between the two splits, per condition |
+| C5 | LOSO harness: fit on train subjects, score the held-out subject, AUROC per condition | M | ✅ merged (PR #13) | AUROC ≈ 0.5 on shuffled labels; high on a clearly shifted mock |
+| C6 | Statistics: subject-level bootstrap CI, paired score difference, ICC(2,1), SEM, MDC | L | ✅ merged (PR #13) | CI on a known synthetic effect covers the truth ≈ 95 % of the time |
+| C7 | **P2 ablation grid runner** (reference × band × tempo term × mapping) | L | ✅ v0 merged (PR #13) | One command reproduces the table; each cell has a CI |
+| C8 | **P1 reproduction**: RehabHub within-participant split vs LOSO, per condition | M | ✅ v0 merged (PR #13) | Table showing the gap between the two splits, per condition |
 | C9 | Demo v0: live webcam loop with angle, rep count and last rep's score | S | ⬜ | Runs on the laptop webcam; prints a score after each rep |
 
 ### What exists now (C1 + C2)
@@ -141,7 +141,7 @@ C3 coverage is 0.986–0.996 in every row. **The mock is too easy:** C3 sits at 
 
 **C8 result (P1, mock):** same scorer and same evaluation reps (each subject's s2 `normal_test` reps halved at random, seed 0; the other half and all other normal reps go into the reference), within-participant vs LOSO. **No gap on the mock**, for RehabHub (all gaps within ±0.02, none excludes 0) or C3. That is expected: mock reps carry a precomputed `dtw_dist`, so the leak only reaches pooled statistics (μ/σ, covariance, ECDF), which one subject barely moves (the same reason the C5 leak test cannot see a leaky C3), and most C3 AUROCs are at the 1.000 ceiling. **The comparison does detect a real leak:** on synthetic data with a large subject effect and a small condition effect, a reference that contains the person's own normal reps gives within 0.585 vs LOSO 0.458, gap +0.127 [+0.078, +0.182]. RehabHub's main leak (a DTW template built partly from the participant's own reps) can only be measured once the per-fold DTW template exists.
 
-**Real data (G1, P001, 3 clips) – known gap:** `trunk_lean_deg` is NaN on 100 % of frames and `elbow_deg` is valid on only 0–5 %, so the C3 scorer as written would abstain on every real rep. The feature set must depend on what the pipeline provides (and be recorded in the model). To do before G3.
+**Real data (G1, P001, 3 clips) – scorer side done (issue #14, not yet run on G1):** calibration, evaluation and test reps now come from `neuroflow/scoring/roles.py` (`is_calib` → v2 `block_role` → the mock's block names), with the duration median from each subject's baseline session and `session_id` allowed to be null. Features unavailable on the normal training reps (elbow and trunk on G1) are dropped before fitting (`model["dropped_features"]`), one model never mixes two `angle_col` values, and every abstained rep has a reason (`mixed_angle_col`, `no_calibration`, `censored_start`, `censored_end`, `missing_feature:<col>`), counted in the AUROC tables. `run_loso(..., curves=rep_curves)` rebuilds `dtw_dist` inside each fold with B's `add_dtw_dist` (and P1's within arm builds its template from the reference reps, i.e. RehabHub's real leak). C4 has an exploratory `tilt` sub-score (`max_shoulder_tilt_deg`, never a feedback code). Tested on G1-like schema-v2 reps built from the mock (`tests/test_real_data_v2.py`). **To run on G1:** B's v2 `reps.parquet` + `rep_curves.parquet` for T_01/T_02/T_05 and the calibration reps.
 
 **Mock blocks:** `normal_calib, normal_test, slow 2x/3x, band light/medium, trunk_lean small/large, elbow_bend 30deg/60deg, hike shrug, rom_cap 60deg/90deg` (7 conditions, 13 blocks). Naming follows B's mock (`condition` + `level`).
 

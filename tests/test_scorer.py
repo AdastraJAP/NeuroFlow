@@ -82,7 +82,8 @@ def test_abstained_reps_have_no_subscores(first_fold):
     assert len(ab) > 0                      # the mock has some NaN starts
     assert ab["subscores"].isna().all()
     assert ab["score_0_100"].isna().all()
-    assert (ab["abstain_reason"] == "missing_feature").all()
+    # the mock's unknown starts abstain as censored, with the reason named
+    assert (ab["abstain_reason"] == "censored_start").all()
 
 
 # ---- contract and leak guards ----
