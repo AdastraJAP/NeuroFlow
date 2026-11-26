@@ -203,6 +203,12 @@ def retest_agreement(scores, reps, block=NORMAL_BLOCK, sessions=("s1", "s2")):
     Agreement of each subject's mean score between two sessions.
     ICC(2,1); SEM = SD x sqrt(1 - ICC); MDC95 = 1.96 x sqrt(2) x SEM
     (the smallest change in a subject's mean score that is more than noise).
+
+    MDC in points can only be compared between scores with similar spreads. A
+    score that saturates (RehabHub: most normal reps at exactly 100) squeezes
+    the between-subject SD, so its MDC in points shrinks without it being more
+    reliable. So we also report share_at_100 and mdc95_rel = MDC95 / SD, which
+    equals 1.96 x sqrt(2 x (1 - ICC)): compare scores on ICC or mdc95_rel.
     """
     _check_no_in_sample(scores)
     cols = ["rep_id", "subject_id", "session_id", "block_id"]
@@ -214,7 +220,10 @@ def retest_agreement(scores, reps, block=NORMAL_BLOCK, sessions=("s1", "s2")):
     icc = icc_2_1(m.to_numpy())
     sd = float(np.std(m.to_numpy(), ddof=1))
     sem = sd * np.sqrt(max(0.0, 1.0 - icc))
-    return {"icc": icc, "sem": sem, "mdc95": 1.96 * np.sqrt(2.0) * sem,
+    mdc95 = 1.96 * np.sqrt(2.0) * sem
+    return {"icc": icc, "sem": sem, "mdc95": mdc95, "sd": sd,
+            "mdc95_rel": mdc95 / sd if sd > 0 else np.nan,
+            "share_at_100": float((df["score_0_100"] >= 100).mean()),
             "n_subjects": len(m), "per_subject": m}
 
 
@@ -264,8 +273,11 @@ def main():
     print("\nTest-retest of each subject's mean normal_test score, s1 vs s2:")
     for name, sc in (("RehabHub", base), ("C3", c3)):
         r = retest_agreement(sc, reps)
-        print(f"  {name:<9} ICC(2,1) = {r['icc']:.3f}   SEM = {r['sem']:.1f} points   "
-              f"MDC95 = {r['mdc95']:.1f} points   (n = {r['n_subjects']})")
+        print(f"  {name:<9} ICC(2,1) = {r['icc']:.3f}   MDC95 = {r['mdc95']:.1f} points "
+              f"(SD of subject means {r['sd']:.1f}; MDC95/SD = {r['mdc95_rel']:.2f})   "
+              f"reps at exactly 100: {r['share_at_100']:.0%}   (n = {r['n_subjects']})")
+    print("  MDC in points is not comparable across scores with different spreads "
+          "(a ceiling shrinks it); compare ICC or MDC95/SD.")
 
 
 if __name__ == "__main__":

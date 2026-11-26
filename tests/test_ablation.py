@@ -61,6 +61,7 @@ def test_unknown_mapping_raises():
         make_cell("none", "nope")
 
 
+@pytest.mark.slow
 def test_grid_shape_and_cis(reps, folds):
     grid = run_grid(reps, folds, n_boot=50)
     assert len(grid) == len(TEMPO_TERMS) * len(MAPPINGS) * 11

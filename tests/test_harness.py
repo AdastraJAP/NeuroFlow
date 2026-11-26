@@ -94,6 +94,7 @@ def test_shuffle_keeps_pairs_and_calibration(reps):
     assert pairs(sh) == pairs(reps)          # same pairs per subject, new places
 
 
+@pytest.mark.slow
 def test_c3_passes_shuffled_label_check(reps, folds):
     a = shuffled_label_check(reps, folds, fit_scorer, score_reps, n_shuffles=5, seed=0)
     assert abs(a.mean() - 0.5) <= SHUFFLE_TOLERANCE

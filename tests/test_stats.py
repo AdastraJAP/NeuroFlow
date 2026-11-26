@@ -76,6 +76,7 @@ def _synthetic(rng, n_subjects, n_reps, delta, tau):
     return scores, reps
 
 
+@pytest.mark.slow
 def test_auroc_ci_coverage_on_known_effect():
     from neuroflow.scoring.stats import bootstrap_auroc
     delta, tau = 1.0, 0.5
@@ -159,3 +160,6 @@ def test_retest_sem_and_mdc():
     assert r["n_subjects"] == 8
     assert r["icc"] > 0.99
     assert r["mdc95"] == pytest.approx(1.96 * np.sqrt(2) * r["sem"])
+    # relative MDC is a function of ICC only, so it is comparable across scores
+    assert r["mdc95_rel"] == pytest.approx(1.96 * np.sqrt(2 * (1 - r["icc"])))
+    assert r["share_at_100"] == 0.0
