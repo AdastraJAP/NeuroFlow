@@ -155,6 +155,7 @@ def test_retest_sem_and_mdc():
     rows = [(f"{s}_{ses}", s, ses, "normal_test", 10.0 * i + (1.0 if ses == "s2" else 0.0))
             for i, s in enumerate(subj) for ses in ("s1", "s2")]
     reps = pd.DataFrame(rows, columns=["rep_id", "subject_id", "session_id", "block_id", "v"])
+    reps["condition"] = "normal"
     scores = reps[["rep_id"]].assign(score_0_100=reps["v"], abstain=False)
     r = retest_agreement(scores, reps)
     assert r["n_subjects"] == 8

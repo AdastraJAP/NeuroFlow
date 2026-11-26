@@ -25,11 +25,11 @@ import pandas as pd
 from scipy.stats import rankdata
 
 from neuroflow.scoring.contract import IN_SAMPLE_REF_TYPE
+from neuroflow.scoring.roles import normal_test_mask, role_columns, session_mask, test_mask
 
 N_BOOT = 2000
 SEED = 0
 ALPHA = 0.05
-NORMAL_BLOCK = "normal_test"
 
 
 # ---------------------------------------------------------------- basics
@@ -93,9 +93,9 @@ def _check_no_in_sample(scores):
 
 
 def _labelled(scores, reps, session):
-    cols = ["rep_id", "subject_id", "session_id", "block_id", "condition", "level"]
+    cols = ["rep_id", "subject_id", *[c for c in role_columns(reps) if c != "subject_id"]]
     df = scores.merge(reps[cols], on="rep_id", how="left", validate="one_to_one")
-    return df[df["session_id"] == session]
+    return df[session_mask(df, session)]
 
 
 def subject_groups(scores, reps, condition, level, session="s2", keep=None,
@@ -113,8 +113,8 @@ def subject_groups(scores, reps, condition, level, session="s2", keep=None,
     df = df[~df["abstain"].astype(bool)]
     if keep is not None:
         df = df[df["rep_id"].isin(keep)]
-    is_normal = (df["condition"] == "normal") & (df["block_id"] == NORMAL_BLOCK)
-    is_imp = (df["condition"] == condition) & (df["level"] == level)
+    is_normal = normal_test_mask(df)
+    is_imp = (df["condition"] == condition) & (df["level"] == level) & test_mask(df)
     subjects = sorted(set(df.loc[is_normal | is_imp, "subject_id"]))
     normal, impaired = [], []
     for s in subjects:
@@ -198,7 +198,7 @@ def icc_2_1(matrix):
     return float((msr - mse) / (msr + (k - 1) * mse + k * (msc - mse) / n))
 
 
-def retest_agreement(scores, reps, block=NORMAL_BLOCK, sessions=("s1", "s2")):
+def retest_agreement(scores, reps, sessions=("s1", "s2")):
     """
     Agreement of each subject's mean score between two sessions.
     ICC(2,1); SEM = SD x sqrt(1 - ICC); MDC95 = 1.96 x sqrt(2) x SEM
@@ -211,9 +211,9 @@ def retest_agreement(scores, reps, block=NORMAL_BLOCK, sessions=("s1", "s2")):
     equals 1.96 x sqrt(2 x (1 - ICC)): compare scores on ICC or mdc95_rel.
     """
     _check_no_in_sample(scores)
-    cols = ["rep_id", "subject_id", "session_id", "block_id"]
+    cols = ["rep_id", "subject_id", *[c for c in role_columns(reps) if c != "subject_id"]]
     df = scores.merge(reps[cols], on="rep_id", how="left", validate="one_to_one")
-    df = df[(df["block_id"] == block) & df["session_id"].isin(sessions)
+    df = df[normal_test_mask(df) & df["session_id"].isin(sessions)
             & ~df["abstain"].astype(bool)]
     m = df.pivot_table(index="subject_id", columns="session_id",
                        values="score_0_100", aggfunc="mean")[list(sessions)].dropna()
@@ -232,7 +232,7 @@ def retest_agreement(scores, reps, block=NORMAL_BLOCK, sessions=("s1", "s2")):
 def ci_table(scores, reps, n_boot=N_BOOT, seed=SEED, session="s2"):
     """bootstrap_auroc for every (condition, level) except normal."""
     df = _labelled(scores, reps, session)
-    pairs = (df.loc[df["condition"] != "normal", ["condition", "level"]]
+    pairs = (df.loc[(df["condition"] != "normal") & test_mask(df), ["condition", "level"]]
                .drop_duplicates().sort_values(["condition", "level"]))
     rows = []
     for cond, lvl in pairs.itertuples(index=False):

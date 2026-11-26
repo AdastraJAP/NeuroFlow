@@ -19,7 +19,14 @@ SCORE_COLUMNS = [
 # Keys allowed in the scores.parquet "subscores" JSON string (None when abstained).
 # "d" = the scorer's raw distance (C3), kept because score_0_100 floors at 0.
 # Adding a key is not a column change, so SCHEMA_VERSION stays 1, but list it here.
-SUBSCORE_KEYS = ("d", "rom", "tempo", "shape", "smooth", "trunk", "elbow", "hike")
+SUBSCORE_KEYS = ("d", "rom", "tempo", "shape", "smooth", "trunk", "elbow", "hike", "tilt")
+# "tilt" = max_shoulder_tilt_deg (issue #6 / #14), exploratory like "hike". A key is
+# left out when its feature was unavailable when the model was fitted.
+
+# abstain_reason values (issue #14). "missing_feature:<column>" names the first used
+# feature that is missing.
+ABSTAIN_REASONS = ("mixed_angle_col", "mixed_side", "no_calibration", "censored_start",
+                   "censored_end", "missing_feature")
 
 # Values allowed in the "feedback_code" column (None = no feedback). Not "d" (it is
 # a distance, not a sub-score) and not "hike" (exploratory: F1 ~ 0.55, too many

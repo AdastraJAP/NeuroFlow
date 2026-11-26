@@ -27,21 +27,23 @@ import pandas as pd
 from sklearn.metrics import roc_auc_score
 
 from neuroflow.scoring.contract import IN_SAMPLE_REF_TYPE
+from neuroflow.scoring.roles import (calib_mask, normal_test_mask, role_columns,
+                                     session_mask, test_mask)
 
 POSITIVE_CONTROLS = ("rom_cap",)
-NORMAL_BLOCK = "normal_test"
-CALIB_BLOCK = "normal_calib"
+# Which reps are calibration / normal test / test: neuroflow.scoring.roles
+# (block_role in schema v2, the mock's block names in v1).
 
 # Leak test: decided BEFORE looking at any result.
 SHUFFLE_TOLERANCE = 0.05          # mean shuffled AUROC must lie in 0.5 +/- 0.05
 
 AUROC_COLUMNS = ["condition", "level", "n_normal", "n_impaired", "n_abstained",
-                 "coverage", "auroc", "positive_control"]
+                 "coverage", "auroc", "positive_control", "abstain_reasons"]
 
 
 # ---------------------------------------------------------------- LOSO
 
-def run_loso(reps, folds, fit, score, leak=False):
+def run_loso(reps, folds, fit, score, leak=False, curves=None, dtw_method="dba"):
     """
     Fit on the train subjects of every fold, score the held-out subject, and
     return all folds' scores concatenated (one row per development rep).
@@ -50,11 +52,24 @@ def run_loso(reps, folds, fit, score, leak=False):
     on train AND test subjects, then scored with allow_in_sample=True, because
     score_reps and score_baseline (rightly) refuse to score a training subject.
     Those rows come back with ref_type="in_sample".
+
+    curves: B's rep_curves table (index rep_id, c00..c59). When given, dtw_dist
+    is recomputed INSIDE each fold with add_dtw_dist: the template is built from
+    the normal reps of that fold's training subjects only, so a held-out subject
+    never shapes its own reference (issue #14). Without curves, the reps'
+    precomputed dtw_dist is used (the mock).
+    Known bias, same in every fold: the training reps are scored against a
+    template they helped build, so their dtw_dist is slightly optimistic.
     """
     from neuroflow.scoring.folds import iter_folds
 
     parts = []
     for fold_id, train, test in iter_folds(reps, folds):
+        if curves is not None:
+            from neuroflow.segmentation.dtw_feature import add_dtw_dist
+            source = pd.concat([train, test]) if leak else train
+            train = add_dtw_dist(train, curves, source, method=dtw_method)
+            test = add_dtw_dist(test, curves, source, method=dtw_method)
         if leak:
             model = fit(pd.concat([train, test]))
             parts.append(score(model, test, fold_id=fold_id,
@@ -66,7 +81,7 @@ def run_loso(reps, folds, fit, score, leak=False):
 
 
 def _attach(scores, reps):
-    cols = ["rep_id", "subject_id", "session_id", "block_id", "condition", "level"]
+    cols = ["rep_id", "subject_id", *[c for c in role_columns(reps) if c != "subject_id"]]
     return scores.merge(reps[cols], on="rep_id", how="left", validate="one_to_one")
 
 
@@ -79,6 +94,13 @@ def _auroc(normal_scores, impaired_scores):
     return roc_auc_score(y, -s)          # minus: a lower score means more impaired
 
 
+def _reason_counts(g):
+    if "abstain_reason" not in g.columns:
+        return ""
+    v = g.loc[g["abstain"].astype(bool), "abstain_reason"].fillna("unknown").value_counts()
+    return ", ".join(f"{k}: {n}" for k, n in v.items())
+
+
 def auroc_by_condition(scores, reps, session="s2"):
     """
     One row per (condition, level): normal_test vs that condition, one session.
@@ -87,18 +109,20 @@ def auroc_by_condition(scores, reps, session="s2"):
     n_abstained           abstained reps of BOTH classes: the normal_test reps
                           (same in every row) plus this condition's reps
     coverage              scored / all, over both classes
+    abstain_reasons       counts per abstain_reason, both classes
+    session=None uses every session (real data: test reps of all sessions).
     """
     if "ref_type" in scores and scores["ref_type"].eq(IN_SAMPLE_REF_TYPE).any():
         raise ValueError("in-sample scores in an AUROC table; use them only in the "
                          "explicit P1/leak comparisons")
     df = _attach(scores, reps)
-    df = df[df["session_id"] == session]
+    df = df[session_mask(df, session)]
 
-    normal = df[(df["condition"] == "normal") & (df["block_id"] == NORMAL_BLOCK)]
+    normal = df[normal_test_mask(df)]
     normal_ok = normal[~normal["abstain"]]
 
     rows = []
-    impaired_all = df[df["condition"] != "normal"]
+    impaired_all = df[(df["condition"] != "normal") & test_mask(df)]
     for (cond, lvl), g in impaired_all.groupby(["condition", "level"], sort=True):
         g_ok = g[~g["abstain"]]
         n_ab = int(g["abstain"].sum() + normal["abstain"].sum())
@@ -113,6 +137,7 @@ def auroc_by_condition(scores, reps, session="s2"):
             "auroc": _auroc(normal_ok["score_0_100"].to_numpy(),
                             g_ok["score_0_100"].to_numpy()),
             "positive_control": cond in POSITIVE_CONTROLS,
+            "abstain_reasons": _reason_counts(pd.concat([normal, g])),
         })
     return pd.DataFrame(rows, columns=AUROC_COLUMNS)
 
@@ -127,7 +152,7 @@ def shuffle_within_subject(reps, seed=0):
     """
     rng = np.random.default_rng(seed)
     out = reps.copy()
-    movable = out["block_id"] != CALIB_BLOCK
+    movable = ~calib_mask(out)
     for _, idx in out[movable].groupby("subject_id").groups.items():
         idx = np.asarray(idx)
         perm = rng.permutation(idx)
@@ -143,7 +168,7 @@ def pooled_shuffled_auroc(scores, shuffled_reps, session="s2"):
     the tolerance by luck. (The never-pool rule is for real effects, not this.)
     """
     df = _attach(scores, shuffled_reps)
-    df = df[(df["session_id"] == session) & (df["block_id"] != CALIB_BLOCK) & ~df["abstain"]]
+    df = df[session_mask(df, session) & ~calib_mask(df) & ~df["abstain"].astype(bool)]
     is_normal = df["condition"] == "normal"
     return _auroc(df.loc[is_normal, "score_0_100"].to_numpy(),
                   df.loc[~is_normal, "score_0_100"].to_numpy())

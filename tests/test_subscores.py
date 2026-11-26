@@ -71,7 +71,8 @@ def test_codes_are_allowed_and_hike_never_speaks(loso_s2):
 def test_subscores_json_has_every_key(loso_s2):
     ok = loso_s2[~loso_s2["abstain"]]
     keys = set(json.loads(ok["subscores"].iloc[0]))
-    assert keys == set(SUBSCORE_KEYS)
+    # the mock has no shoulder-tilt column, so "tilt" is left out of the model
+    assert keys == set(SUBSCORE_KEYS) - {"tilt"}
 
 
 def test_abstained_reps_get_no_feedback(loso_s2):
@@ -86,7 +87,8 @@ def test_fit_uses_normal_reps_only(reps):
     train = reps[reps["subject_id"] != "sub01"]
     only_normal = train[(train["condition"] == "normal") | (train["block_id"] == "normal_calib")]
     a, b = fit_subscores(train), fit_subscores(only_normal)
-    for name in SUBSCORE_SPEC:
+    assert set(a) == set(b)
+    for name in a:
         assert a[name]["median"] == b[name]["median"]
         np.testing.assert_array_equal(a[name]["ref"], b[name]["ref"])
 
