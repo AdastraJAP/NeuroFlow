@@ -13,7 +13,8 @@ import numpy as np
 import pandas as pd
 from sklearn.covariance import LedoitWolf
 
-from neuroflow.scoring.contract import SCHEMA_VERSION, SCORE_COLUMNS
+from neuroflow.scoring.contract import IN_SAMPLE_REF_TYPE, SCHEMA_VERSION, SCORE_COLUMNS
+from neuroflow.scoring.folds import check_not_fitted_on
 
 SCORER_ID = "lw_mahalanobis_v1"
 MAPPING = "lw_mahalanobis_ecdf"
@@ -73,11 +74,15 @@ def mahalanobis(model: dict, reps: pd.DataFrame) -> np.ndarray:
 
 
 def score_reps(model: dict, reps: pd.DataFrame, fold_id=-1,
-               ref_type="pooled") -> pd.DataFrame:
-    """Score reps with a fitted model. Returns a scores table (SCORE_COLUMNS)."""
-    overlap = set(model["train_subjects"]) & set(reps["subject_id"])
-    if overlap and fold_id >= 0:
-        raise ValueError(f"scoring subjects the model was fitted on: {sorted(overlap)}")
+               ref_type="pooled", allow_in_sample=False) -> pd.DataFrame:
+    """
+    Score reps with a fitted model. Returns a scores table (SCORE_COLUMNS).
+    allow_in_sample=True permits scoring training subjects and marks every row
+    ref_type="in_sample", so in-sample rows can never pass for LOSO/locked ones.
+    """
+    check_not_fitted_on(model["train_subjects"], reps, allow_in_sample)
+    if allow_in_sample:
+        ref_type = IN_SAMPLE_REF_TYPE
 
     from neuroflow.scoring.subscores import deviation_table, feedback_codes, subscore_table
 

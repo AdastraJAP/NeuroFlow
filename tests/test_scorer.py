@@ -54,7 +54,7 @@ def test_slow_reps_no_longer_saturate(loso_scores):
 def test_training_normals_ecdf_is_uniform(first_fold):
     _, train, _, model = first_fold
     normal = train[train["condition"] == "normal"]
-    s = score_reps(model, normal, fold_id=-1)["score_0_100"].dropna().to_numpy()
+    s = score_reps(model, normal, allow_in_sample=True)["score_0_100"].dropna().to_numpy()
     assert s.mean() == pytest.approx(50, abs=2)
     # each tenth of 0-100 holds about a tenth of the reps
     counts, _ = np.histogram(s, bins=10, range=(0, 100))
@@ -123,3 +123,17 @@ def test_all_nan_calibration_fails_loudly(reps):
     bad.loc[is_calib, "duration_s"] = np.nan
     with pytest.raises(ValueError, match="sub01"):
         feature_matrix(bad)
+
+
+# ---- in-sample scoring needs an explicit flag (Melchior, PR #8 review, point 3) ----
+
+def test_locked_fold_id_does_not_switch_off_leak_check(first_fold):
+    _, train, _, model = first_fold
+    with pytest.raises(ValueError, match="fitted on"):
+        score_reps(model, train, fold_id=-1)          # -1 is LOCKED_FOLD_ID, not a bypass
+
+
+def test_in_sample_rows_are_marked(first_fold):
+    _, train, _, model = first_fold
+    out = score_reps(model, train.head(20), allow_in_sample=True)
+    assert (out["ref_type"] == "in_sample").all()

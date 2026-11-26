@@ -69,3 +69,11 @@ def test_needs_enough_normal_reps():
         fit_baseline(toy([1.0]))
     with pytest.raises(ValueError):
         fit_baseline(toy([2.0, 2.0]))
+
+
+def test_in_sample_needs_flag_and_is_marked():
+    model = fit_baseline(toy([1.0, 2.0, 3.0], subject="a"))
+    with pytest.raises(ValueError, match="fitted on"):
+        score_baseline(model, toy([1.0], subject="a"), fold_id=-1)
+    out = score_baseline(model, toy([1.0], subject="a"), allow_in_sample=True)
+    assert (out["ref_type"] == "in_sample").all()
