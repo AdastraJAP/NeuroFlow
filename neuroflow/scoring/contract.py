@@ -25,7 +25,7 @@ SUBSCORE_KEYS = ("d", "rom", "tempo", "shape", "smooth", "trunk", "elbow", "hike
 
 # abstain_reason values (issue #14). "missing_feature:<column>" names the first used
 # feature that is missing.
-ABSTAIN_REASONS = ("mixed_angle_col", "no_calibration", "censored_start",
+ABSTAIN_REASONS = ("mixed_angle_col", "mixed_side", "no_calibration", "censored_start",
                    "censored_end", "missing_feature")
 
 # Values allowed in the "feedback_code" column (None = no feedback). Not "d" (it is

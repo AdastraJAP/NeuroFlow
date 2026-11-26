@@ -147,3 +147,15 @@ def test_per_fold_template_never_contains_the_held_out_subject(v2):
 def test_dtw_without_curves_or_column_is_simply_unavailable(v2):
     model = fit_scorer(v2.drop(columns=["dtw_dist"])[v2["subject_id"] != "sub01"])
     assert "dtw_dist" in model["dropped_features"]
+
+
+def test_one_model_never_mixes_left_and_right(v2):
+    # PR #7 review: left-arm reps must never enter a right-arm reference.
+    r = v2.copy()
+    r.loc[r["subject_id"] == "sub02", "side"] = "left"
+    with pytest.raises(ValueError, match="side"):
+        fit_scorer(r[r["subject_id"] != "sub01"])
+    model = fit_scorer(v2[v2["subject_id"] != "sub01"])
+    left = v2[v2["subject_id"] == "sub01"].assign(side="left")
+    out = score_reps(model, left, fold_id=0)
+    assert (out["abstain_reason"] == "mixed_side").all()

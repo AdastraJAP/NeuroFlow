@@ -9,7 +9,7 @@ Real-data rules (issue #14):
   * a feature that is unavailable on the normal training reps (all NaN or
     constant: elbow and trunk on hip-free G1 clips) is dropped before fitting,
     and model["features"] lists the features actually used;
-  * one model never mixes two angle definitions (angle_col);
+  * one model never mixes two angle definitions (angle_col) or two arms (side);
   * every abstained rep says why (contract.ABSTAIN_REASONS).
 
 Run (from the repo root):
@@ -57,20 +57,24 @@ def feature_matrix(reps: pd.DataFrame, missing_calib="raise") -> pd.DataFrame:
     return out[FEATURES]
 
 
-def _angle(reps):
-    """The single angle_col of a table (None if absent); raise if it mixes two."""
-    if "angle_col" not in reps.columns:
+def _single(reps, col, what):
+    """The single value of col in a table (None if absent); raise if it mixes two."""
+    if col not in reps.columns:
         return None
-    vals = reps["angle_col"].dropna().unique()
+    vals = reps[col].dropna().unique()
     if len(vals) > 1:
-        raise ValueError(f"reps mix angle definitions {sorted(vals)}; "
-                         "fit one model per angle_col")
+        raise ValueError(f"reps mix {what} {sorted(vals)}; fit one model per {col}")
     return vals[0] if len(vals) else None
+
+
+def _angle(reps):
+    return _single(reps, "angle_col", "angle definitions")
 
 
 def fit_scorer(train_reps: pd.DataFrame) -> dict:
     """Fit on NORMAL train reps only. Return everything score_reps needs."""
     angle = _angle(train_reps)
+    side = _single(train_reps, "side", "arms (side)")     # left and right never pooled
     normal = train_reps[train_reps["condition"] == "normal"]
     X = feature_matrix(normal)
     used = [f for f in FEATURES
@@ -95,6 +99,7 @@ def fit_scorer(train_reps: pd.DataFrame) -> dict:
         "features": used,
         "dropped_features": [f for f in FEATURES if f not in used],
         "angle_col": angle,
+        "side": side,
         "mu": mu,
         "sd": sd,
         "prec": prec,
@@ -116,7 +121,7 @@ def mahalanobis(model: dict, reps: pd.DataFrame) -> np.ndarray:
 def abstain_reasons(model: dict, reps: pd.DataFrame) -> np.ndarray:
     """
     Why each rep cannot be scored (None = it can). First matching reason wins:
-    mixed_angle_col, no_calibration, censored_start, censored_end,
+    mixed_angle_col, mixed_side, no_calibration, censored_start, censored_end,
     missing_feature:<first missing used feature>.
     """
     used = model["features"]
@@ -126,6 +131,9 @@ def abstain_reasons(model: dict, reps: pd.DataFrame) -> np.ndarray:
     if model.get("angle_col") is not None and "angle_col" in reps.columns:
         bad = (reps["angle_col"].notna() & reps["angle_col"].ne(model["angle_col"])).to_numpy()
         out[bad] = "mixed_angle_col"
+    if model.get("side") is not None and "side" in reps.columns:
+        bad = (reps["side"].notna() & reps["side"].ne(model["side"])).to_numpy()
+        out[free() & bad] = "mixed_side"
     if "duration_ratio" in used:
         no_cal = ~reps["subject_id"].isin(calib_duration_median(reps).index).to_numpy()
         out[free() & no_cal] = "no_calibration"
