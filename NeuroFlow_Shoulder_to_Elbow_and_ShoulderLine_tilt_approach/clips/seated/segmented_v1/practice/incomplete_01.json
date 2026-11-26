@@ -1,0 +1,30 @@
+{
+  "clip": "incomplete_01",
+  "category": "practice",
+  "position": "seated",
+  "version": "hip_free_2d_v4_segmented",
+  "arm": "right",
+  "reference_clip": "clips/seated/reference/ref_01.avi",
+  "angle_definition": "shoulder_to_elbow_vs_downward_image_vertical",
+  "resolution": [
+    1280,
+    720
+  ],
+  "video_nominal_fps": 30.0,
+  "recording_countdown_s": 5,
+  "rep_timeout_s": 25,
+  "actual_duration_s": 5.278,
+  "recording_schema_version": 2,
+  "capture_outcome": "complete",
+  "detector_status": "complete",
+  "termination_reason": "confirmed_return",
+  "termination_elapsed_ms": 5278,
+  "repetition_start_ms": 1431,
+  "repetition_end_ms": 4828,
+  "repetition_duration_s": 3.397,
+  "calibration_id": null,
+  "actual_fps_approx": 25.198938992042443,
+  "timestamp_source": "monotonic capture clock",
+  "record_started_at_local": "2026-11-18T23:03:23",
+  "camera_setup": "fixed frontal view, camera at shoulder/chest height, marked position, full arm visible"
+}

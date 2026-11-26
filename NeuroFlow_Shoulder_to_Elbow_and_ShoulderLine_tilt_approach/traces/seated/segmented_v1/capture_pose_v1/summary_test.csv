@@ -1,0 +1,14 @@
+clip,expected_label,measurement_source,capture_outcome,repetition_outcome,start_ms,end_ms,max_arm_elevation_deg,dtw_score,rest_baseline_deg,termination_reason,usable_ratio,max_bad_run,peak_tilt_change_deg,system_result
+T_01,complete,live_capture,complete,complete,1811,9052,93.76744698362828,1.0238805330360197,11.16042837444278,confirmed_return,1.0,0,11.614219057752138,Target reached | shoulder-line tilt observed (exploratory)
+T_02,complete,live_capture,complete,complete,2609,15261,85.66810325304432,1.3022871411697812,11.624952473665346,confirmed_return,1.0,0,11.541995169635058,Target reached | shoulder-line tilt observed (exploratory)
+T_03,complete,live_capture,complete,complete,1657,5096,93.76215302642676,1.0276532892038173,10.172030285904127,confirmed_return,1.0,0,10.387484792046564,Target reached | shoulder-line tilt observed (exploratory)
+T_04,complete,live_capture,complete,complete,1807,11674,87.97563343336185,0.9452549204434739,9.779097436826628,confirmed_return,1.0,0,11.716216425842703,Target reached | shoulder-line tilt observed (exploratory)
+T_05,incomplete,live_capture,complete,complete,1666,5158,53.219403739531494,9.192849870444427,9.994532322349823,confirmed_return,1.0,0,4.8567659481525425,Arm elevation below target
+T_06,incomplete,live_capture,complete,complete,1730,6800,61.89838545023155,6.083559353284249,10.918434998059837,confirmed_return,1.0,0,6.311287158492121,Arm elevation below target
+T_07,incomplete,live_capture,complete,complete,1619,7416,68.87404086750703,4.181561700721207,9.691979493093594,confirmed_return,1.0,0,6.931796334741392,Arm elevation below target
+T_08,uncertain,live_capture,complete,complete,1491,7408,81.94179618416112,1.7905939439877643,10.12756685065731,confirmed_return,1.0,0,8.936756595989408,Target reached
+T_09,incomplete,live_capture,incomplete_return,incomplete_return,1492,,,,9.340618114292608,movement_timeout,1.0,0,9.435756379744674,Incomplete return - arm did not settle at rest
+T_10,uncertain,live_capture,complete,complete,1950,17019,86.23000042108336,1.6984705603817012,14.513774099113434,confirmed_return,1.0,0,11.122144256917522,Target reached | shoulder-line tilt observed (exploratory)
+T_11,uncertain,live_capture,complete,complete,1610,13392,90.32545422371003,1.5713003091957642,13.584356342972677,confirmed_return,1.0,0,13.182032301932452,Target reached | shoulder-line tilt observed (exploratory)
+T_12,uncertain,live_capture,complete,complete,1403,14067,87.8825823506758,1.2851521630037692,13.429808910665411,confirmed_return,1.0,0,14.764759715940883,Target reached | shoulder-line tilt observed (exploratory)
+T_13,uncertain,live_capture,unable_to_judge,unable_to_judge,1782,,,,11.337046265110356,tracking_lost,0.9915254237288136,1,8.984604724546813,Unable to judge - tracking or resting baseline unavailable

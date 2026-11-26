@@ -1,0 +1,6 @@
+{
+  "version": "hip_free_2d_v3_solo_positions",
+  "arm": "right",
+  "position": "seated",
+  "reference_clip": "clips/seated/reference/ref_01.avi"
+}

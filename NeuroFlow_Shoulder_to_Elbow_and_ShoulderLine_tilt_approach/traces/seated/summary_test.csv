@@ -1,0 +1,21 @@
+clip,expected_label,quality,usable_ratio,max_bad_run,max_arm_elevation_deg,dtw_score,peak_tilt_change_deg,system_result
+T_01,complete,True,1.0,0,94.67457464989523,0.7715777429443355,9.098094221639442,Target reached
+T_02,complete,True,1.0,0,96.29426543800807,1.3906115958366903,10.527554452374076,Target reached | shoulder-line tilt observed (exploratory)
+T_03,complete,True,1.0,0,92.37114418288544,1.0133543590137861,8.614156514345723,Target reached
+T_04,complete,True,1.0,0,92.56262167387862,1.2839467062541963,9.517921922644305,Target reached
+T_05,complete,True,1.0,0,93.25594561709062,1.1257494316489491,11.521610145758046,Target reached | shoulder-line tilt observed (exploratory)
+T_06,incomplete,True,1.0,0,75.2526818361576,2.2668701130845252,9.747456487576471,Arm elevation below target
+T_07,incomplete,True,1.0,0,71.3489054259639,2.658032308527138,6.128324596886344,Arm elevation below target
+T_08,incomplete,True,1.0,0,62.98914777865594,4.3327732292415115,7.428030562414648,Arm elevation below target
+T_09,incomplete,True,1.0,0,79.51058177457234,2.2406327591859445,6.46129232589962,Arm elevation below target
+T_10,incomplete,True,1.0,0,77.71978324421339,1.9494297881031097,8.68731899230616,Arm elevation below target
+T_11,complete,True,1.0,0,94.15219412394873,2.345171838664857,10.647101376295538,Movement differs from reference | shoulder-line tilt observed (exploratory)
+T_12,complete,True,1.0,0,93.15937349498076,3.8372376933477907,11.52218450438886,Movement differs from reference | shoulder-line tilt observed (exploratory)
+T_13,complete,True,1.0,0,94.28446858745664,1.1441714747860858,12.037518149002324,Target reached | shoulder-line tilt observed (exploratory)
+T_14,complete,True,1.0,0,92.63299999062207,0.9011181667028205,9.542085760414238,Target reached
+T_15,incomplete,True,1.0,0,72.28873188233409,2.9484938258590403,6.0343990605091875,Arm elevation below target
+T_16,uncertain,True,1.0,0,85.23202914279445,2.1784027100397063,5.512200169570917,Movement differs from reference
+T_17,incomplete,True,1.0,0,63.47002221531334,4.873930159839476,4.0029972282380015,Arm elevation below target
+T_18,incomplete,True,1.0,0,98.30666961877743,16.453329457716038,13.866232922306452,Movement differs from reference | shoulder-line tilt observed (exploratory)
+T_19,complete,True,1.0,0,90.13612050604074,0.9198275795641615,11.642934620911944,Target reached | shoulder-line tilt observed (exploratory)
+T_20,complete,True,1.0,0,94.8295227592428,1.1452932442262085,13.522144830792229,Target reached | shoulder-line tilt observed (exploratory)

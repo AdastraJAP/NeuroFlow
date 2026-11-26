@@ -1,0 +1,11 @@
+clip,expected_label,repetition_outcome,start_ms,end_ms,max_arm_elevation_deg,dtw_score,usable_ratio,max_bad_run,peak_tilt_change_deg,system_result
+complete_01,,complete,1467,4895,89.10185124034355,0.7804242142497605,1.0,0,10.476752486913256,Angle target reached (DTW not calibrated) | shoulder-line tilt observed (exploratory)
+complete_02,,complete,1520,14391,87.67699816557189,1.1943458870779713,1.0,0,9.412703387395311,Angle target reached (DTW not calibrated)
+complete_03,,complete,1194,4492,82.22995998195404,2.0089801354424446,1.0,0,9.024957117829743,Angle target reached (DTW not calibrated)
+complete_04,,complete,1900,8380,91.35043062175704,1.1623018553180806,1.0,0,10.808345705894993,Angle target reached (DTW not calibrated) | shoulder-line tilt observed (exploratory)
+complete_05,,incomplete_return,2003,,,,1.0,0,13.384275241745542,Incomplete return - arm did not settle at rest | shoulder-line tilt observed (exploratory)
+complete_06,,incomplete_return,2264,,,,1.0,0,8.410264982600225,Incomplete return - arm did not settle at rest
+incomplete_01,,complete,1431,4786,64.6905322885845,5.455146597727243,1.0,0,6.6133848662217645,Arm elevation below target
+incomplete_02,,incomplete_return,1527,,,,1.0,0,4.4465524439469135,Incomplete return - arm did not settle at rest
+incomplete_03,,complete,1870,5884,61.72759993645915,6.097561450729978,1.0,0,5.615542751257806,Arm elevation below target
+incomplete_04,,complete,2231,6993,75.60449155978418,2.934644880694981,1.0,0,7.028779532366244,Arm elevation below target

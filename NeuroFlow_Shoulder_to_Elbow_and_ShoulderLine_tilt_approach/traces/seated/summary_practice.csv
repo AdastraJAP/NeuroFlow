@@ -1,0 +1,7 @@
+clip,expected_label,quality,usable_ratio,max_bad_run,max_arm_elevation_deg,dtw_score,peak_tilt_change_deg,system_result
+complete_01,,True,1.0,0,94.97448919163473,0.5980953099442998,13.437993117333534,Angle target reached (DTW not calibrated) | shoulder-line tilt observed (exploratory)
+complete_02,,True,1.0,0,94.54512048944929,1.0254526196026248,13.972774859717532,Angle target reached (DTW not calibrated) | shoulder-line tilt observed (exploratory)
+complete_03,,True,1.0,0,95.20648571092852,1.0356132019562834,13.328975193372344,Angle target reached (DTW not calibrated) | shoulder-line tilt observed (exploratory)
+incomplete_01,,True,1.0,0,68.81924051068361,2.982511839244916,11.028997149359668,Arm elevation below target | shoulder-line tilt observed (exploratory)
+incomplete_02,,True,1.0,0,68.39644168517786,3.3201425785114003,8.021005489197762,Arm elevation below target
+incomplete_03,,True,1.0,0,79.3725735285814,1.9167392495109348,11.31247610262119,Arm elevation below target | shoulder-line tilt observed (exploratory)
