@@ -388,3 +388,5 @@ Rep counts are right. Slow is about 1.9× normal, and rom_cap reaches about half
 | 2026-11-27 | PR #16 (7willA, scorer for schema v2) reviewed; role bug fixed in PR #17 into `Wilkend` (roles per row, v1 `block_id` rule where `block_role` is null) instead of a blocking review |
 | 2026-11-27 | G1 calibration reps get `block_role = "calib"` on B's side (from the calibration manifest), so the scorer needs no `is_calib` column; T clips marked `test` (Adastra, #9) |
 | 2026-11-27 | Proposed: the G1 real-data check is plumbing only (one participant); G3 needs ≥ 2 real subjects |
+| 2026-11-27 | Gap length measured on real timestamps (valid sample to valid sample); a capture-time jump counts as a gap; calibration needs ≥ 3 fully measured reps (PR #15 review) |
+| 2026-11-27 | Elevation-corrected tilt is a new column `max_shoulder_tilt_excess_deg`; `max_shoulder_tilt_deg` keeps the rest-corrected definition (PR #15 review) |
