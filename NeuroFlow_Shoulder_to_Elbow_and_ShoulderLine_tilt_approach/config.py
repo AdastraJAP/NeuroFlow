@@ -1,4 +1,4 @@
-"""Experiment configuration. Seated and standing calibrations are independent.
+"""Experiment configuration. Position and anatomical arm calibrations are independent.
 
 No camera/MediaPipe imports: configuration can be tested without hardware.
 """
@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 SETTINGS_PATH = ROOT / 'settings.json'
 POSITIONS = ('seated', 'standing')
+ARMS = ('right', 'left')
 LEGACY_VERSION = 'hip_free_2d_v3_solo_positions'
 VERSION = 'hip_free_2d_v4_segmented'
 
@@ -37,6 +38,14 @@ DEFAULT_SETTINGS = {
         'seated': {'reference_clip': None, 'dtw_threshold': None},
         'standing': {'reference_clip': None, 'dtw_threshold': None},
     },
+    # Existing conditions and paths remain the authoritative right-arm record.
+    # New arm conditions are separate so old right-arm settings need no migration.
+    'arm_conditions': {
+        'left': {
+            'seated': {'reference_clip': None, 'dtw_threshold': None, 'dtw_calibration': None},
+            'standing': {'reference_clip': None, 'dtw_threshold': None, 'dtw_calibration': None},
+        },
+    },
 }
 
 
@@ -48,16 +57,21 @@ def _read(path):
             raw = json.load(f)
         if raw.get('version') not in (VERSION, LEGACY_VERSION):
             raise SystemExit('Settings are from an unsupported project version.')
-        data.update({k: v for k, v in raw.items() if k != 'conditions'})
+        data.update({k: v for k, v in raw.items() if k not in ('conditions', 'arm_conditions')})
         for position in POSITIONS:
             data['conditions'][position].update(raw.get('conditions', {}).get(position, {}))
+        for arm, conditions in raw.get('arm_conditions', {}).items():
+            if arm not in data['arm_conditions']:
+                raise SystemExit(f'Unsupported arm condition: {arm}')
+            for position in POSITIONS:
+                data['arm_conditions'][arm][position].update(conditions.get(position, {}))
         if raw['version'] == LEGACY_VERSION:
             data['version'] = VERSION
             for condition in data['conditions'].values():
                 condition['dtw_threshold'] = None
     if data['position'] not in POSITIONS:
         raise SystemExit(f"Invalid position: {data['position']}. Choose seated or standing.")
-    if data['arm'] not in ('left', 'right'):
+    if data['arm'] not in ARMS:
         raise SystemExit('Arm must be left or right.')
     return data
 
@@ -70,10 +84,13 @@ def _write(data, path):
 
 def load_settings(path=SETTINGS_PATH):
     data = _read(path)
-    active = data['position']
-    flat = {k: v for k, v in data.items() if k != 'conditions'}
-    flat.update(data['conditions'][active])
+    flat = {k: v for k, v in data.items() if k not in ('conditions', 'arm_conditions')}
+    flat.update(_condition(data, data['arm'], data['position']))
     return flat
+
+
+def _condition(data, arm, position):
+    return data['conditions'][position] if arm == 'right' else data['arm_conditions'][arm][position]
 
 
 def save_settings(settings, path=SETTINGS_PATH):
@@ -81,12 +98,15 @@ def save_settings(settings, path=SETTINGS_PATH):
     active = settings.get('position', data['position'])
     if active not in POSITIONS:
         raise ValueError('position must be seated or standing')
+    arm = settings.get('arm', data['arm'])
+    if arm not in ARMS:
+        raise ValueError('arm must be left or right')
     for key in DEFAULT_SETTINGS:
-        if key != 'conditions' and key in settings:
+        if key not in ('conditions', 'arm_conditions') and key in settings:
             data[key] = settings[key]
     for key in ('reference_clip', 'dtw_threshold', 'dtw_calibration'):
         if key in settings:
-            data['conditions'][active][key] = settings[key]
+            _condition(data, arm, active)[key] = settings[key]
     _write(data, path)
 
 
@@ -95,6 +115,16 @@ def set_position(position, path=SETTINGS_PATH):
         raise ValueError('position must be seated or standing')
     data = _read(path)
     data['position'] = position
+    _write(data, path)
+    return load_settings(path)
+
+
+def set_arm(arm, path=SETTINGS_PATH):
+    """Select anatomical arm without copying its reference or calibration."""
+    if arm not in ARMS:
+        raise ValueError('arm must be left or right')
+    data = _read(path)
+    data['arm'] = arm
     _write(data, path)
     return load_settings(path)
 
@@ -114,4 +144,6 @@ def set_recording_timing(countdown, duration, path=SETTINGS_PATH):
 
 def mode_dir(kind, settings=None):
     s = settings if settings is not None else load_settings()
-    return Path(kind) / s['position'] / 'segmented_v1'
+    base = Path(kind) / s['position']
+    return (base / 'segmented_v1' if s['arm'] == 'right'
+            else base / s['arm'] / 'segmented_v1')

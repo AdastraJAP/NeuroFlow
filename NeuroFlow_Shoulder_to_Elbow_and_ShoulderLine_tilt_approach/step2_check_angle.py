@@ -1,7 +1,8 @@
 """Live geometry check: hip-free arm elevation and shoulder-line tilt.
 
 Run python step2_check_angle.py
-Keys: q quit | a switch arm | b reset shoulder-tilt baseline | s save screenshot
+Keys: q quit | a switch anatomical arm (also selects it in the menu) |
+      b reset shoulder-tilt baseline | s save screenshot
 Check 0, 45, 90 and 120 degrees with a goniometer/phone angle reference.
 """
 import time
@@ -53,6 +54,8 @@ def main():
                 if key == ord('q'): break
                 if key == ord('a'):
                     arm = "left" if arm == "right" else "right"
+                    s = nf.set_arm(arm)
+                    baseline = None
                     print("Selected anatomical arm:", arm)
                 if key == ord('b'):
                     baseline = None

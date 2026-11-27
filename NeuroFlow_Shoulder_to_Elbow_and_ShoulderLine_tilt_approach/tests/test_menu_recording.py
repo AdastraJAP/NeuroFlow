@@ -37,7 +37,8 @@ class SimulatedCamera:
 
 
 class TestMenuRecording(unittest.TestCase):
-    def run_option(self, option, category, name, return_at_ms):
+    def run_option(self, option, category, name, return_at_ms, arm='right',
+                   raised_angle=90.12345678901234, tracking_loss_at_ms=None):
         with TemporaryDirectory() as folder:
             root = Path(folder)
             reference = root / 'ref.avi'
@@ -45,7 +46,7 @@ class TestMenuRecording(unittest.TestCase):
             reference.with_suffix('.timestamps.csv').write_text('frame,timestamp_ms\n0,0\n')
             reference.with_suffix('.json').write_text('{}')
             settings = load_settings(root / 'settings.json')
-            settings.update(reference_clip=str(reference), dtw_threshold=2.0)
+            settings.update(arm=arm, reference_clip=str(reference), dtw_threshold=2.0)
             settings['dtw_calibration'] = {
                 'id': 'synthetic-calibration', 'reference': reference_identity(settings), 'threshold': 2.0,
             }
@@ -55,9 +56,12 @@ class TestMenuRecording(unittest.TestCase):
             choices = iter([option, *(['incomplete'] if option == '10' else []), '', '0'])
 
             def pose_angle(landmarks, *args):
+                self.assertEqual(args[0], arm)
                 stamp = landmarks[0].z
+                if tracking_loss_at_ms is not None and stamp >= tracking_loss_at_ms:
+                    return None, False
                 at_rest = stamp < 600 or (return_at_ms is not None and stamp >= return_at_ms)
-                return (5.12345678901234 if at_rest else 90.12345678901234), True
+                return (5.12345678901234 if at_rest else raised_angle), True
 
             def launch(args, cwd, check):
                 self.assertEqual(args, [sys.executable, str(menu.PROJECT_DIR / 'step4_record.py'), category, name])
@@ -69,7 +73,9 @@ class TestMenuRecording(unittest.TestCase):
                 patch('builtins.input', side_effect=lambda prompt: next(choices)),
                 patch('menu.subprocess.run', side_effect=launch) as launcher,
                 patch('menu.nf.load_settings', return_value=settings),
+                patch('menu.nf.save_settings'),
                 patch('menu.nf.mode_dir', side_effect=lambda kind, active: root / mode_dir(kind, active)),
+                patch('menu.scoring_dir', side_effect=lambda active: root / mode_dir('traces', active) / 'capture_pose_v1'),
                 patch('step4_record.nf.open_camera', return_value=(camera, 32, 32)),
                 patch('step4_record.nf.make_landmarker', side_effect=lambda: nullcontext(object())),
                 patch('step4_record.nf.detect', side_effect=lambda detector, frame, timestamp: [
@@ -89,7 +95,9 @@ class TestMenuRecording(unittest.TestCase):
             path = root / mode_dir('clips', settings) / category / name
             metadata = json.loads(path.with_suffix('.json').read_text(encoding='utf-8'))
             with path.with_suffix('.timestamps.csv').open(newline='', encoding='utf-8') as source:
-                timestamps = [int(row['timestamp_ms']) for row in csv.DictReader(source)]
+                stamps = list(csv.DictReader(source))
+                timestamps = [int(row['timestamp_ms']) for row in stamps]
+            self.assertEqual([int(row['frame']) for row in stamps], list(range(len(stamps))))
             video = cv2.VideoCapture(str(path.with_suffix('.avi')))
             try:
                 self.assertTrue(video.isOpened())
@@ -97,6 +105,7 @@ class TestMenuRecording(unittest.TestCase):
             finally:
                 video.release()
             self.assertEqual(metadata['version'], settings['version'])
+            self.assertEqual(metadata['arm'], arm)
             self.assertNotIn('recording_duration_requested_s', metadata)
             self.assertEqual(metadata['rep_timeout_s'], 25)
             self.assertEqual(metadata['termination_elapsed_ms'], timestamps[-1])
@@ -106,7 +115,10 @@ class TestMenuRecording(unittest.TestCase):
             self.assertEqual(repetition.end_ms, metadata['repetition_end_ms'])
             self.assertEqual(repetition.rest_baseline_deg, 5.12345678901234)
             self.assertEqual(replay['rows'][0]['landmarks'][0]['x'], 0.234567890123456)
-            self.assertEqual(replay['rows'][6]['arm_elevation_deg'], 90.12345678901234)
+            self.assertEqual(replay['rows'][0]['arm'], arm)
+            self.assertIn('detector_state', replay['rows'][0])
+            self.assertEqual(replay['rows'][-1]['detector_state'], metadata['detector_status'])
+            self.assertEqual(replay['rows'][6]['arm_elevation_deg'], raised_angle)
             with self.assertRaisesRegex(ValueError, 'replay disagrees'):
                 scoring_measurements(path.with_suffix('.avi'), settings,
                                      {**metadata, 'repetition_start_ms': 601})
@@ -176,3 +188,35 @@ class TestMenuRecording(unittest.TestCase):
         self.assertEqual(metadata['actual_duration_s'], 25.6)
         self.assertIsNone(metadata['repetition_end_ms'])
         self.assertIsNone(metadata['repetition_duration_s'])
+
+    def test_left_reference_uses_shared_recorder_and_separate_folder(self):
+        metadata = self.run_option('4', 'reference', 'ref_01', 2000, arm='left')
+        self.assertEqual(metadata['arm'], 'left')
+        self.assertEqual(metadata['detector_status'], 'complete')
+
+    def test_left_diagnostic_uses_separate_unscored_folder(self):
+        metadata = self.run_option('17', 'diagnostic', 'D_01', 2000, arm='left')
+        self.assertEqual(metadata['category'], 'diagnostic')
+        self.assertEqual(metadata['detector_status'], 'complete')
+
+    def test_left_slow_complete_repetition_replays_saved_pose(self):
+        metadata = self.run_option('5', 'practice', 'complete_01', 13000, arm='left')
+        self.assertEqual(metadata['repetition_duration_s'], 12.4)
+        self.assertEqual(metadata['termination_reason'], 'confirmed_return')
+
+    def test_left_incomplete_return_times_out_from_onset(self):
+        metadata = self.run_option('10', 'test', 'T_01', None, arm='left')
+        self.assertEqual(metadata['detector_status'], 'incomplete_return')
+        self.assertEqual(metadata['termination_reason'], 'movement_timeout')
+
+    def test_left_insufficient_elevation_can_still_complete_return(self):
+        metadata = self.run_option('6', 'practice', 'incomplete_01', 2000,
+                                   arm='left', raised_angle=50.0)
+        self.assertEqual(metadata['detector_status'], 'complete')
+        self.assertEqual(metadata['termination_reason'], 'confirmed_return')
+
+    def test_left_tracking_loss_abstains(self):
+        metadata = self.run_option('6', 'practice', 'incomplete_01', None,
+                                   arm='left', tracking_loss_at_ms=900)
+        self.assertEqual(metadata['detector_status'], 'unable_to_judge')
+        self.assertEqual(metadata['termination_reason'], 'tracking_lost')

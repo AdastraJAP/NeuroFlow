@@ -3,7 +3,8 @@
 Menu options 4/5/6/10 call this. Press SPACE once, get into position during
 countdown, then recording starts/stops automatically. Q cancels.
 
-Direct: python step4_record.py reference ref_01
+Direct: python step4_record.py diagnostic D_01
+        python step4_record.py reference ref_01
         python step4_record.py practice complete_01
         python step4_record.py test T_01
 """
@@ -33,8 +34,8 @@ def overlay(frame, label, position, line2='', color=(255,255,255)):
 
 
 def main():
-    if len(sys.argv) != 3 or sys.argv[1] not in ('reference', 'practice', 'test'):
-        raise SystemExit('Usage: python step4_record.py [reference|practice|test] [clip_name]')
+    if len(sys.argv) != 3 or sys.argv[1] not in ('diagnostic', 'reference', 'practice', 'test'):
+        raise SystemExit('Usage: python step4_record.py [diagnostic|reference|practice|test] [clip_name]')
     category, name = sys.argv[1:]
     if not re.fullmatch(r'[A-Za-z0-9_-]+', name):
         raise SystemExit('Clip name may contain only letters, digits, _ and -')
@@ -60,7 +61,7 @@ def main():
     nominal_fps = cap.get(cv2.CAP_PROP_FPS)
     if not nominal_fps or not 1 <= nominal_fps <= 120:
         nominal_fps = 30.0
-    window = f'Neuro-Flow {position} {category}/{name} | SPACE once | q cancel'
+    window = f'Neuro-Flow {position} {s["arm"]} {category}/{name} | SPACE once | q cancel'
     cv2.namedWindow(window, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(window, min(w,1280), min(h,720))
     writer, frames, times = None, 0, []
@@ -97,6 +98,7 @@ def main():
                 times.append((frames, timestamp))
                 frames += 1
                 result = repetition.push(timestamp, row['arm_elevation_deg'])
+                row['detector_state'] = repetition.state
                 if result is not None:
                     print(f'Automatic stop: {result.outcome} ({result.termination_reason})')
                     break

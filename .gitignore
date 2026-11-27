@@ -9,6 +9,17 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
+# Local research exports and private handoff packages
+/data/
+
+# New arm-specific research captures and derived results stay local
+/NeuroFlow_Shoulder_to_Elbow_and_ShoulderLine_tilt_approach/clips/*/left/
+/NeuroFlow_Shoulder_to_Elbow_and_ShoulderLine_tilt_approach/clips/*/segmented_v1/diagnostic/
+/NeuroFlow_Shoulder_to_Elbow_and_ShoulderLine_tilt_approach/traces/*/left/
+/NeuroFlow_Shoulder_to_Elbow_and_ShoulderLine_tilt_approach/calibration/*/left/
+/NeuroFlow_Shoulder_to_Elbow_and_ShoulderLine_tilt_approach/logs/*/left/
+/NeuroFlow_Shoulder_to_Elbow_and_ShoulderLine_tilt_approach/review/*/left/
+
 # Project reference documents (kept local)
 Neuro-Flow Implementation Plan Tasks, Workflow and Member Prompts.md
 Neuro-Flow Research Brief Evidence, Datasets and Architecture.md

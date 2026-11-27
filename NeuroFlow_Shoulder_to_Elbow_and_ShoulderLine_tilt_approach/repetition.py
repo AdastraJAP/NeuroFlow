@@ -37,6 +37,17 @@ class RepetitionDetector:
         self.result = None
 
     @property
+    def state(self):
+        """Human-readable state saved with new capture rows; no scoring dependency."""
+        if self.result is not None:
+            return self.result.outcome
+        if self.active:
+            return 'return_candidate' if self.return_index is not None else 'moving'
+        if self.baseline is None:
+            return 'rest_calibrating'
+        return 'start_candidate' if self.candidate else 'ready'
+
+    @property
     def instruction(self):
         if self.active:
             return 'Raise, then lower and hold still'
