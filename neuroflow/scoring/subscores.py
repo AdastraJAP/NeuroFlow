@@ -37,10 +37,13 @@ SUBSCORE_SPEC = {
     "trunk":  ("max_trunk_lean_deg", "high"),
     "elbow":  ("min_elbow_deg",      "low"),
     "hike":   ("max_hike_ratio",     "high"),    # exploratory: never a feedback code
-    # exploratory: never a feedback code. Resting tilt = median of the 0.5 s just
-    # before the rep's start (cut at the previous rep's end, >= 8 valid frames,
-    # else NaN); feature = max |tilt - resting tilt| over the rep (B, issue #14).
-    "tilt":   ("max_shoulder_tilt_deg", "high"),
+    # exploratory: never a feedback code. B's max_shoulder_tilt_excess_deg (issue
+    # #14, PR #15 review): max |excess tilt| over the rep, the tilt change from rest
+    # minus tilt_slope x the elevation change from rest (resting values = medians of
+    # the 0.5 s before the rep's start); NaN without a calibration tilt_slope. Not
+    # max_shoulder_tilt_deg: on real clips that one follows the arm elevation, so
+    # it would rate a capped rep as better.
+    "tilt":   ("max_shoulder_tilt_excess_deg", "high"),
 }
 
 # Feedback is given only when the rep is unusual overall AND one sub-score is low.
@@ -55,7 +58,7 @@ def sub_features(reps: pd.DataFrame, missing_calib="raise") -> pd.DataFrame:
     """The feature column of every sub-score (reuses C3's feature_matrix).
     Columns the reps table lacks come back all NaN."""
     X = feature_matrix(reps, missing_calib)      # duration_ratio + calib check for free
-    for col in ("max_hike_ratio", "max_shoulder_tilt_deg"):
+    for col in ("max_hike_ratio", "max_shoulder_tilt_excess_deg"):
         X[col] = reps[col].astype(float).to_numpy() if col in reps.columns else np.nan
     return X[[feat for feat, _ in SUBSCORE_SPEC.values()]]
 

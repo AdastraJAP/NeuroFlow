@@ -20,7 +20,7 @@ SCORE_COLUMNS = [
 # "d" = the scorer's raw distance (C3), kept because score_0_100 floors at 0.
 # Adding a key is not a column change, so SCHEMA_VERSION stays 1, but list it here.
 SUBSCORE_KEYS = ("d", "rom", "tempo", "shape", "smooth", "trunk", "elbow", "hike", "tilt")
-# "tilt" = max_shoulder_tilt_deg (issue #6 / #14), exploratory like "hike". A key is
+# "tilt" = max_shoulder_tilt_excess_deg (issue #14), exploratory like "hike". A key is
 # left out when its feature was unavailable when the model was fitted.
 
 # abstain_reason values (issue #14). "missing_feature" is written with the column
