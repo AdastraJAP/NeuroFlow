@@ -159,3 +159,24 @@ def test_one_model_never_mixes_left_and_right(v2):
     left = v2[v2["subject_id"] == "sub01"].assign(side="left")
     out = score_reps(model, left, fold_id=0)
     assert (out["abstain_reason"] == "mixed_side").all()
+
+
+def test_every_abstain_reason_is_allowed(v2):
+    from neuroflow.scoring.contract import is_abstain_reason
+    r = v2.copy()
+    r.loc[r.index[:3], ["t_end_ms", "duration_s"]] = np.nan
+    out = run_loso(r, _folds(r), fit_scorer, score_reps)
+    reasons = out.loc[out["abstain"], "abstain_reason"]
+    assert len(reasons) > 0 and reasons.map(is_abstain_reason).all()
+
+
+def test_reps_segmented_from_v1_frames_keep_their_roles(v2):
+    # B's v2 segmenter leaves block_role null when the frames are v1 (mock, G1 export):
+    # the v1 block names must still decide, per row
+    r = v2.copy()
+    r["block_id"] = r["block_id"].str.removeprefix("T_")
+    r["block_role"] = None
+    model = fit_scorer(r[r["subject_id"] != "sub01"])          # finds the calibration
+    t = auroc_by_condition(run_loso(r, _folds(r), fit_scorer, score_reps), r, session=None)
+    assert t.query("condition == 'slow'")["n_normal"].item() > 0
+    assert "duration_ratio" in model["features"]

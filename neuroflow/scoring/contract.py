@@ -23,10 +23,22 @@ SUBSCORE_KEYS = ("d", "rom", "tempo", "shape", "smooth", "trunk", "elbow", "hike
 # "tilt" = max_shoulder_tilt_deg (issue #6 / #14), exploratory like "hike". A key is
 # left out when its feature was unavailable when the model was fitted.
 
-# abstain_reason values (issue #14). "missing_feature:<column>" names the first used
-# feature that is missing.
+# abstain_reason values (issue #14). "missing_feature" is written with the column
+# it names, as "missing_feature:<column>" (the first used feature that is missing);
+# "no_dtw_distance" comes from the RehabHub baseline (C2). Check values with
+# is_abstain_reason, not with `in ABSTAIN_REASONS`.
 ABSTAIN_REASONS = ("mixed_angle_col", "mixed_side", "no_calibration", "censored_start",
-                   "censored_end", "missing_feature")
+                   "censored_end", "missing_feature", "no_dtw_distance")
+
+
+def is_abstain_reason(value) -> bool:
+    """True if value is an allowed abstain_reason (the part before ':' for missing_feature)."""
+    if not isinstance(value, str):
+        return False
+    head, sep, col = value.partition(":")
+    if head == "missing_feature":
+        return bool(sep and col)
+    return not sep and head in ABSTAIN_REASONS
 
 # Values allowed in the "feedback_code" column (None = no feedback). Not "d" (it is
 # a distance, not a sub-score) and not "hike" (exploratory: F1 ~ 0.55, too many

@@ -2,13 +2,21 @@
 Which reps are calibration, test or practice (owner: Wilkend).
 
 One place for the rule, so the scorer, harness, statistics and P1 never look for
-mock names (normal_calib / normal_test / s1 / s2) by themselves. Precedence:
+mock names (normal_calib / normal_test / s1 / s2) by themselves.
 
-  1. an explicit boolean column `is_calib` (e.g. set from B's calibration
-     manifest, when the calibration reps were recorded as practice clips);
-  2. schema v2 `block_role` = calib | practice | test  (issue #14);
-  3. schema v1 / the mock: block_id == "normal_calib" (calibration) and
-     block_id == "normal_test" (normal test reps).
+Every rep gets its role on its own row, so v1 and v2 reps can be mixed:
+
+  1. calibration: an explicit boolean `is_calib` where it is set (e.g. from B's
+     calibration manifest); where it is null, the role below decides;
+  2. role: schema v2 `block_role` = calib | practice | test (issue #14) where it
+     is set; where it is null (a v1 table, or v2 reps segmented from v1 frames,
+     which B leaves null rather than guess), the v1 rule from block_id:
+     "normal_calib" = calib, anything else = test;
+  3. normal test reps: condition "normal" and role test; on rows that fell back
+     to the v1 rule, the block must also be "normal_test".
+
+A block_role outside calib | practice | test raises instead of silently
+dropping the rep.
 
 Baseline session (issue #14 / PR #8 review): the personal duration median comes
 from each subject's calibration reps of its BASELINE session = the first
@@ -36,27 +44,48 @@ def role_columns(reps):
     return [c for c in ROLE_COLUMNS if c in reps.columns]
 
 
+def _has_role(reps):
+    """True where the row carries a v2 block_role (False on v1 rows)."""
+    if "block_role" not in reps.columns:
+        return pd.Series(False, index=reps.index)
+    return reps["block_role"].notna()
+
+
+def block_roles(reps):
+    """Role of every rep: block_role where set, else the v1 rule from block_id."""
+    has = _has_role(reps)
+    bad = sorted(set(reps.loc[has, "block_role"]) - set(BLOCK_ROLES)) if has.any() else []
+    if bad:
+        raise ValueError(f"block_role must be one of {BLOCK_ROLES}, got {bad}")
+    if "block_id" in reps.columns:
+        legacy = np.where(reps["block_id"].eq(LEGACY_CALIB_BLOCK), CALIB_ROLE, TEST_ROLE)
+    else:
+        legacy = np.full(len(reps), TEST_ROLE, dtype=object)
+    role = pd.Series(legacy, index=reps.index, dtype=object)
+    if has.any():
+        role[has] = reps.loc[has, "block_role"]
+    return role
+
+
 def calib_mask(reps):
-    """True for calibration reps."""
+    """True for calibration reps: is_calib where set, else role == calib."""
+    m = block_roles(reps).eq(CALIB_ROLE)
     if "is_calib" in reps.columns:
-        return reps["is_calib"].astype("boolean").fillna(False).astype(bool)
-    if "block_role" in reps.columns:
-        return reps["block_role"].eq(CALIB_ROLE)
-    return reps["block_id"].eq(LEGACY_CALIB_BLOCK)
+        flag = reps["is_calib"].astype("boolean")
+        m = flag.fillna(m).astype(bool)
+    return m
 
 
 def test_mask(reps):
     """True for reps that may be evaluated: test reps, never calibration or practice."""
-    if "block_role" in reps.columns:
-        return reps["block_role"].eq(TEST_ROLE) & ~calib_mask(reps)
-    return ~calib_mask(reps)
+    return block_roles(reps).eq(TEST_ROLE) & ~calib_mask(reps)
 
 
 def normal_test_mask(reps):
-    """Normal reps on the evaluation side (v1: the normal_test block)."""
+    """Normal reps on the evaluation side (v1 rows: the normal_test block only)."""
     m = reps["condition"].eq("normal") & test_mask(reps)
-    if "block_role" not in reps.columns:
-        m &= reps["block_id"].eq(LEGACY_TEST_BLOCK)
+    if "block_id" in reps.columns:
+        m &= _has_role(reps) | reps["block_id"].eq(LEGACY_TEST_BLOCK)
     return m
 
 
