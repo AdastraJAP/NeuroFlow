@@ -214,3 +214,73 @@ def test_still_rest_ignores_a_falling_tail():
     assert still_rest(falling, t, 0, len(t), t_low=30, side="after") is None
     flat = np.r_[falling[t < 1000], np.full((t >= 1000).sum(), 15.0)]
     assert still_rest(flat, t, 0, len(t), t_low=30, side="after") == pytest.approx(15.0, abs=0.5)
+
+
+# ---- long tracking gaps are never bridged (issue #12) ----
+from neuroflow.segmentation.segment import long_gaps, smooth  # noqa: E402
+
+
+def _with_gap(frames, t0, dur_ms):
+    f = frames.sort_values("t_capture_ms").copy()
+    t = f["t_capture_ms"]
+    f.loc[(t >= t0) & (t < t0 + dur_ms), "theta_ht_deg"] = np.nan
+    return f
+
+
+def test_long_gaps_and_smooth_keep_long_gaps_nan():
+    t = np.arange(0, 3000, 33.0)
+    x = np.sin(t / 500.0)
+    x[(t >= 1000) & (t < 1100)] = np.nan                  # 0.1 s: short, bridged
+    x[(t >= 2000) & (t < 2500)] = np.nan                  # 0.5 s: long
+    g = long_gaps(t, x)
+    assert not g[(t >= 1000) & (t < 1100)].any() and g[(t >= 2000) & (t < 2500)].all()
+    xs = smooth(t, x)
+    assert np.isfinite(xs[(t >= 1000) & (t < 1100)]).all()
+    assert np.isnan(xs[(t >= 2000) & (t < 2500)]).all()
+
+
+def test_gap_on_the_rise_leaves_the_start_unknown():
+    """The rep opens after the gap (peak and end measured), its start is not guessed."""
+    frames, truth, rest, rom = _load("normal")
+    r = truth.iloc[4]
+    t0 = (r["t_start_ms"] + r["t_peak_ms"]) / 2 - 300
+    reps = segment_reps(_with_gap(frames, t0, 600), rom, rest)
+    assert len(reps) == len(truth) and reps.attrs["dropped_gap_reps"] == 0
+    assert np.isnan(reps["t_start_ms"].iloc[4])
+    assert abs(reps["t_end_ms"].iloc[4] - r["t_end_ms"]) <= TOLERANCE_MS
+    for c in ("t_start_ms", "t_peak_ms", "t_end_ms"):
+        assert not reps[c].between(t0, t0 + 600).any()
+
+
+@pytest.mark.parametrize("where", ["peak", "fall"])
+def test_rep_spanning_a_long_gap_is_not_reported(where):
+    """A gap inside the detected rep (peak or way down not measured): the rep is
+    left out and counted in reps.attrs["dropped_gap_reps"]."""
+    frames, truth, rest, rom = _load("normal")
+    k = 4
+    r = truth.iloc[k]
+    t0 = {"peak": r["t_peak_ms"] - 300,
+          "fall": (r["t_peak_ms"] + r["t_end_ms"]) / 2 - 300}[where]
+    reps = segment_reps(_with_gap(frames, t0, 600), rom, rest)
+    assert len(reps) == len(truth) - 1 and reps.attrs["dropped_gap_reps"] == 1
+    others = truth.drop(index=k).reset_index(drop=True)
+    assert np.allclose(reps["t_start_ms"], others["t_start_ms"], atol=TOLERANCE_MS)
+    # no boundary or peak inside the gap
+    for c in ("t_start_ms", "t_peak_ms", "t_end_ms"):
+        assert not reps[c].between(t0, t0 + 600).any()
+
+
+def test_gap_at_rest_keeps_every_rep():
+    frames, truth, rest, rom = _load("normal")
+    mid = (truth["t_end_ms"].iloc[3] + truth["t_start_ms"].iloc[4]) / 2   # rest between reps
+    reps = segment_reps(_with_gap(frames, mid - 150, 300), rom, rest)
+    assert len(reps) == len(truth) and reps.attrs["dropped_gap_reps"] == 0
+    known = reps["t_end_ms"].notna()
+    assert np.allclose(reps.loc[known, "t_end_ms"], truth.loc[known, "t_end_ms"], atol=TOLERANCE_MS)
+
+
+def test_short_gap_inside_a_rep_is_bridged():
+    frames, truth, rest, rom = _load("normal")
+    r = truth.iloc[4]
+    reps = segment_reps(_with_gap(frames, r["t_peak_ms"] - 50, 100), rom, rest)
+    assert len(reps) == len(truth) and reps.attrs["dropped_gap_reps"] == 0

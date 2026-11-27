@@ -293,3 +293,53 @@ def _block(t, theta):
     """Minimal frames table with the columns the segmenter needs."""
     return pd.DataFrame({"subject_id": "syn", "session_id": "s1", "block_id": "b", "condition": "x",
                          "level": "x", "t_capture_ms": t, "theta_ht_deg": theta})
+
+
+# ---- 7. shoulder-line tilt, rest-corrected (exploratory, #6 / #14) ----
+from neuroflow.segmentation.features import (  # noqa: E402
+    TILT_REST_MIN_FRAMES, rest_corrected_tilt, resting_tilt, wrap_deg)
+
+
+def test_wrap_deg():
+    assert list(wrap_deg([0, 89, 90, -91, 179])) == [0, 89, -90, 89, -1]
+
+
+def test_resting_tilt_window_and_minimum():
+    t = np.arange(0, 2000, 40.0)                       # 25 fps
+    tilt = np.where(t < 1000, 3.0, 10.0)               # 3 deg at rest, 10 during the rep
+    assert resting_tilt(t, tilt, 1000.0) == 3.0        # the 0.5 s before the start
+    assert np.isnan(resting_tilt(t, tilt, np.nan))
+    # previous rep ended 100 ms before this start: too few rest frames left
+    assert np.isnan(resting_tilt(t, tilt, 1000.0, t_prev_end_ms=900.0))
+    gappy = tilt.copy()
+    gappy[(t >= 500) & (t < 920)] = np.nan             # only 2 valid rest frames left
+    assert (~np.isnan(gappy[(t >= 500) & (t < 1000)])).sum() < TILT_REST_MIN_FRAMES
+    assert np.isnan(resting_tilt(t, gappy, 1000.0))
+
+
+def test_rest_corrected_tilt_ignores_resting_offset():
+    t = np.arange(0, 3000, 40.0)
+    tilt = np.full(len(t), 4.0)                        # posture/camera: 4 deg at rest
+    rep = (t >= 1000) & (t <= 2000)
+    tilt[rep] += 6.0 * np.sin(np.pi * (t[rep] - 1000) / 1000)   # +6 deg shrug mid-rep
+    v = rest_corrected_tilt(t, tilt, tilt, 1000.0, 2000.0)
+    assert v == pytest.approx(6.0, abs=0.1)            # not 10: the 4 deg offset is removed
+    assert np.isnan(rest_corrected_tilt(t, tilt, tilt, 1000.0, np.nan))
+
+
+def test_rep_features_tilt_column():
+    frames = pd.read_parquet(os.path.join(FX, "mock_frames_normal.parquet"))
+    rest, rom = CALIB[frames["subject_id"].iloc[0]]
+    reps = segment_reps(frames, rom, rest)
+    # no shoulder_tilt_deg column (as in G1's frames.parquet v1) -> NaN, never 0
+    assert rep_features(frames, reps, rest, rom)["max_shoulder_tilt_deg"].isna().all()
+    f = frames.sort_values("t_capture_ms").copy()
+    t = f["t_capture_ms"].to_numpy()
+    tilt = np.full(len(f), 3.0)                         # resting offset
+    for _, r in reps.iterrows():                        # +5 deg tilt peak inside every rep
+        inside = (t >= r["t_start_ms"]) & (t <= r["t_end_ms"])
+        tilt[inside] += 5.0 * np.sin(np.pi * (t[inside] - r["t_start_ms"]) / (r["t_end_ms"] - r["t_start_ms"]))
+    f["shoulder_tilt_deg"] = tilt
+    v = rep_features(f, reps, rest, rom)["max_shoulder_tilt_deg"]
+    assert v.notna().all()
+    assert v.to_numpy() == pytest.approx(5.0, abs=0.3)  # offset removed, shrug kept
