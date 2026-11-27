@@ -385,3 +385,6 @@ Rep counts are right. Slow is about 1.9× normal, and rom_cap reaches about half
 | 2026-11-25 | Schema v2 (#14): keep `angle_col` as the angle-provenance name; missing values NaN, never 0 |
 | 2026-11-25 | Reps schema v2 drafted on `b-schema-v2-draft`: a missing `block_role` in v2 frames is an error, never guessed from block names |
 | 2026-11-25 | PR #13 (C5–C8): comment review only; real-data scorer fixes tracked in #14, not in the PR |
+| 2026-11-27 | PR #16 (7willA, scorer for schema v2) reviewed; role bug fixed in PR #17 into `Wilkend` (roles per row, v1 `block_id` rule where `block_role` is null) instead of a blocking review |
+| 2026-11-27 | G1 calibration reps get `block_role = "calib"` on B's side (from the calibration manifest), so the scorer needs no `is_calib` column; T clips marked `test` (Adastra, #9) |
+| 2026-11-27 | Proposed: the G1 real-data check is plumbing only (one participant); G3 needs ≥ 2 real subjects |
