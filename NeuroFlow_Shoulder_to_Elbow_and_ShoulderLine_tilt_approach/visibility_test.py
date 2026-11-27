@@ -17,9 +17,10 @@ def main():
     s = nf.load_settings()
     arm = s["arm"]
     if exercise == "shoulder":
-        required = [nf.JOINTS[arm]["shoulder"], nf.JOINTS[arm]["elbow"]]
-        observed = [nf.JOINTS[arm]["hip"], nf.JOINTS[arm]["wrist"],
-                    nf.JOINTS["left"]["shoulder"], nf.JOINTS["right"]["shoulder"]]
+        arms = ('left', 'right') if arm == 'both' else (arm,)
+        required = [nf.JOINTS[side][joint] for side in arms for joint in ('shoulder', 'elbow')]
+        observed = [nf.JOINTS[side][joint] for side in arms for joint in ('hip', 'wrist')]
+        observed += [nf.JOINTS["left"]["shoulder"], nf.JOINTS["right"]["shoulder"]]
     else:
         from mediapipe.tasks.python.vision.pose_landmarker import PoseLandmark as P
         required = [P.LEFT_HIP.value, P.RIGHT_HIP.value, P.LEFT_KNEE.value,
@@ -40,6 +41,10 @@ def main():
                 lms = nf.detect(detector, raw, ts)
                 good = nf.joints_usable(lms, required, s["min_visibility"])
                 row = {"timestamp_ms": ts, "pose_detected": int(lms is not None), "required_joints_usable": int(good)}
+                if arm == 'both' and exercise == 'shoulder':
+                    for side in ('left', 'right'):
+                        row[f'{side}_required_joints_usable'] = int(nf.joints_usable(
+                            lms, [nf.JOINTS[side]['shoulder'], nf.JOINTS[side]['elbow']], s['min_visibility']))
                 for j in joints:
                     row[f"joint_{j}_visibility"] = lms[j].visibility if lms else ""
                 rows.append(row)

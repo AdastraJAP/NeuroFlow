@@ -81,6 +81,8 @@ def main():
     if not (which in ('practice', 'test') and len(args) <= 1 or which == '--freeze' and len(args) == 2):
         raise SystemExit('Use step5_score.py [practice|test] or step5_score.py --freeze THRESHOLD.')
     settings = nf.load_settings()
+    if settings['arm'] == 'both':
+        raise SystemExit('Bilateral DTW scoring is unavailable until a separate interface and calibration are agreed.')
     if which == 'test':
         require_calibration(settings)
     if not settings['reference_clip']:

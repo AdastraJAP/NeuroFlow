@@ -5,13 +5,42 @@ Outputs review/<position>/<clipname>/{start,lowest,highest,end}.jpg, angle_trace
         tilt_trace.png, frames.csv
 """
 import sys
+import json
 from pathlib import Path
 import cv2
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import nf_core as nf
-from processing import process_clip, save_frames_csv
+from processing import load_bilateral_live_pose, process_clip, save_frames_csv
+
+
+def review_bilateral(path, settings):
+    """Plot saved live measurements; do not rerun MediaPipe on captured AVI."""
+    metadata = json.loads(path.with_suffix('.json').read_text(encoding='utf-8'))
+    result = load_bilateral_live_pose(path, settings, metadata)
+    rows = result['rows']
+    out = nf.mode_dir('review', settings) / (path.parent.name + '_' + path.stem)
+    out.mkdir(parents=True, exist_ok=True)
+    save_frames_csv(result, out / 'frames.csv')
+    t = [row['timestamp_ms'] / 1000 for row in rows]
+    plt.figure(figsize=(10, 5))
+    for arm in ('left', 'right'):
+        plt.plot(t, [row[f'{arm}_arm_elevation_deg'] if row[f'{arm}_usable'] else float('nan')
+                     for row in rows], label=f'Anatomical {arm}')
+    plt.xlabel('Measured capture time (s)')
+    plt.ylabel('Upper-arm elevation (degrees)')
+    plt.title(path.name + ' | bilateral capture')
+    plt.legend(); plt.tight_layout(); plt.savefig(out / 'angle_trace.png', dpi=140); plt.close()
+    plt.figure(figsize=(10, 3))
+    plt.plot(t, [row['elevation_diff_signed_deg'] if row['elevation_diff_signed_deg'] is not None
+                 else float('nan') for row in rows])
+    plt.axhline(0, color='grey', linestyle='--')
+    plt.xlabel('Measured capture time (s)')
+    plt.ylabel('Left minus right (degrees)')
+    plt.tight_layout(); plt.savefig(out / 'difference_trace.png', dpi=140); plt.close()
+    print(f"Bilateral frames: {len(rows)} | {result['repetition'].outcome} ({result['repetition'].termination_reason})")
+    print('Saved:', out)
 
 
 def main():
@@ -19,6 +48,9 @@ def main():
         raise SystemExit("Usage: python check_clip.py clips/reference/ref_01.avi")
     path = Path(sys.argv[1])
     s = nf.load_settings()
+    if s['arm'] == 'both':
+        review_bilateral(path, s)
+        return
     result = process_clip(path, s, snapshots=True)
     out = nf.mode_dir("review", s) / (path.parent.name + "_" + path.stem)
     out.mkdir(parents=True, exist_ok=True)

@@ -60,6 +60,8 @@ def score_rep(repetition, samples, tilts, baseline, expected, settings, ref):
 
 def main():
     s = nf.load_settings()
+    if s['arm'] == 'both':
+        raise SystemExit('Bilateral scored demo is unavailable; use live measurement or capture.')
     require_calibration(s)
     ref = load_reference(s)
     print(f'Position: {s["position"]} | Segmented DTW: {s["dtw_threshold"]}')

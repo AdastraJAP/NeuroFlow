@@ -25,8 +25,10 @@ def main():
                 shown = cv2.flip(raw, 1)
                 if lms is not None:
                     nf.draw_skeleton(shown, lms, s["min_visibility"], mirror=True)
-                    hip_vis = lms[nf.JOINTS[s["arm"]]["hip"]].visibility
-                    cv2.putText(shown, f"Hip visibility: {hip_vis:.2f} (diagnostic)",
+                    label = ('Bilateral shoulders/elbows (anatomical labels in option 2)'
+                             if s['arm'] == 'both' else
+                             f"Hip visibility: {lms[nf.JOINTS[s['arm']]['hip']].visibility:.2f} (diagnostic)")
+                    cv2.putText(shown, label,
                                 (15,40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,255,255), 2)
                 else:
                     cv2.putText(shown, "No person detected", (15,40),
