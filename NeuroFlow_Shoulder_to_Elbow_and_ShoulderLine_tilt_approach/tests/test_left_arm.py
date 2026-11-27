@@ -164,21 +164,68 @@ class TestLeftArmConfiguration(unittest.TestCase):
         self.assertEqual(load_settings(self.settings_path)['dtw_threshold'], 2.5)
         self.assertEqual(set_arm('right', self.settings_path)['dtw_threshold'], 2.224)
 
-    def test_historical_schema_three_right_sidecar_without_arm_replays(self):
+    def pose_fixture(self, row_arm=None, metadata_arm='right', schema=3):
         video = Path(self.temp.name) / 'old.avi'
         video.with_suffix('.timestamps.csv').write_text('frame,timestamp_ms\n0,0\n', encoding='utf-8')
         row = {'frame': 0, 'timestamp_ms': 0, 'pose_detected': 1,
                'arm_elevation_deg': 10.0, 'shoulder_tilt_deg': 0.0,
                'usable': 1, 'status': 'ok', 'landmarks': [{}] * 33}
+        if row_arm is not None:
+            row['arm'] = row_arm
         video.with_suffix('.live_pose.jsonl').write_text(json.dumps(row) + '\n', encoding='utf-8')
         settings = load_settings(self.settings_path)
-        metadata = {'recording_schema_version': 3, 'capture_frames': 1,
+        metadata = {'recording_schema_version': schema, 'capture_frames': 1,
                     'termination_elapsed_ms': 0, 'min_visibility': settings['min_visibility'],
-                    'arm': 'right'}
+                    'arm': metadata_arm}
+        return video, settings, metadata
+
+    def test_historical_schema_three_right_sidecar_without_arm_replays(self):
+        video, settings, metadata = self.pose_fixture()
+        source = video.with_suffix('.live_pose.jsonl')
+        before = source.read_bytes()
         result = load_live_pose(video, settings, metadata)
         self.assertEqual(result['rows'][0]['arm_elevation_deg'], 10.0)
+        self.assertNotIn('arm', result['rows'][0])
+        self.assertEqual(source.read_bytes(), before)
         with self.assertRaisesRegex(ValueError, 'recorded arm differs'):
             load_live_pose(video, {**settings, 'arm': 'left'}, metadata)
+
+    def test_explicit_right_and_left_recordings_replay_only_with_matching_selection(self):
+        for arm in ('right', 'left'):
+            with self.subTest(arm=arm):
+                video, settings, metadata = self.pose_fixture(arm, arm)
+                result = load_live_pose(video, {**settings, 'arm': arm}, metadata)
+                self.assertEqual(result['rows'][0]['arm'], arm)
+                other = 'left' if arm == 'right' else 'right'
+                with self.assertRaisesRegex(ValueError, 'recorded arm differs'):
+                    load_live_pose(video, {**settings, 'arm': other}, metadata)
+
+    def test_explicit_rows_identify_arm_when_metadata_omits_it(self):
+        video, settings, metadata = self.pose_fixture('left', None)
+        self.assertEqual(load_live_pose(video, {**settings, 'arm': 'left'}, metadata)
+                         ['rows'][0]['arm'], 'left')
+        with self.assertRaisesRegex(ValueError, 'recorded arm differs'):
+            load_live_pose(video, settings, metadata)
+
+    def test_conflicting_metadata_and_sidecar_arm_rejected(self):
+        video, settings, metadata = self.pose_fixture('left', 'right')
+        with self.assertRaisesRegex(ValueError, 'conflicting recorded arm provenance'):
+            load_live_pose(video, settings, metadata)
+
+    def test_armless_recording_without_metadata_is_ambiguous(self):
+        video, settings, metadata = self.pose_fixture(metadata_arm=None)
+        with self.assertRaisesRegex(ValueError, 'ambiguous recorded arm provenance'):
+            load_live_pose(video, settings, metadata)
+
+    def test_armless_left_recording_is_not_treated_as_historical_right(self):
+        video, settings, metadata = self.pose_fixture(metadata_arm='left')
+        with self.assertRaisesRegex(ValueError, 'ambiguous recorded arm provenance'):
+            load_live_pose(video, {**settings, 'arm': 'left'}, metadata)
+
+    def test_bilateral_schema_is_not_replayed_by_unilateral_loader(self):
+        video, settings, metadata = self.pose_fixture('both', 'both', schema=4)
+        with self.assertRaisesRegex(ValueError, 'exact live pose was not saved'):
+            load_live_pose(video, settings, metadata)
 
 
 if __name__ == '__main__':

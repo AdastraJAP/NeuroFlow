@@ -91,14 +91,32 @@ def save_live_pose(path, rows):
 def load_live_pose(path, settings, metadata):
     if settings['arm'] == 'both':
         return load_bilateral_live_pose(path, settings, metadata)
-    if metadata.get('recording_schema_version', 0) < LIVE_POSE_SCHEMA:
+    if metadata.get('recording_schema_version') != LIVE_POSE_SCHEMA:
         raise ValueError(f'{path.name}: exact live pose was not saved by this recorder')
     if metadata.get('min_visibility') != settings['min_visibility']:
         raise ValueError(f'{path.name}: recorded visibility setting differs from the current setup')
-    if metadata.get('arm') is not None and metadata['arm'] != settings['arm']:
-        raise ValueError(f'{path.name}: recorded arm differs from the current setup')
     with live_pose_path(path).open(encoding='utf-8') as source:
         rows = [json.loads(line) for line in source]
+    # Pre-A5 schema-3 rows omitted arm, but their recording metadata saved
+    # anatomical right. Schema alone cannot identify an armless recording.
+    metadata_arm = metadata.get('arm')
+    row_arms = [row.get('arm') for row in rows]
+    if metadata_arm not in (None, 'left', 'right') or any(
+            arm not in (None, 'left', 'right') for arm in row_arms):
+        raise ValueError(f'{path.name}: invalid recorded arm provenance')
+    if any(arm is None for arm in row_arms):
+        if metadata_arm != 'right' or any(arm is not None for arm in row_arms):
+            raise ValueError(f'{path.name}: incomplete or ambiguous recorded arm provenance')
+        recorded_arm = 'right'
+    else:
+        explicit_arms = set(row_arms)
+        if len(explicit_arms) != 1:
+            raise ValueError(f'{path.name}: conflicting recorded arm provenance')
+        recorded_arm = explicit_arms.pop()
+        if metadata_arm is not None and metadata_arm != recorded_arm:
+            raise ValueError(f'{path.name}: conflicting recorded arm provenance')
+    if recorded_arm != settings['arm']:
+        raise ValueError(f'{path.name}: recorded arm differs from the current setup')
     times = nf.clip_timestamps(path, None)
     if (not rows or len(rows) != metadata.get('capture_frames')
             or [row['timestamp_ms'] for row in rows] != times
@@ -107,7 +125,6 @@ def load_live_pose(path, settings, metadata):
     for index, row in enumerate(rows):
         angle = row['arm_elevation_deg']
         if (row['frame'] != index or type(row['timestamp_ms']) is not int or row['usable'] not in (0, 1)
-                or (row.get('arm') is not None and row['arm'] != settings['arm'])
                 or bool(row['usable']) != (angle is not None)
                 or (angle is not None and not math.isfinite(angle))
                 or 'landmarks' not in row):
