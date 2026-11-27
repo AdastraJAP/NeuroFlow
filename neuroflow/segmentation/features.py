@@ -17,8 +17,11 @@ before rep_features() combines them into reps.parquet columns.
                         depends on how A4 signs lean)
     min_elbow_deg       min elbow_deg; 180 = straight arm, lower = more bent
     max_hike_ratio      max hike_ratio (exploratory; weak evidence)
-    max_shoulder_tilt_deg  max |shoulder_tilt_deg - resting tilt| (exploratory, #6/#14;
-                        see rest_corrected_tilt for the resting window)
+    max_shoulder_tilt_deg  max(|wrap(shoulder_tilt_deg - resting tilt)|) over the rep:
+                        rest-corrected only, no correction for arm elevation
+                        (exploratory, #6/#14; see rest_corrected_tilt for the
+                        resting window). A different definition gets a new
+                        column name, never this one (PR #15 review).
 
 Choices made here (not literature values): ROM as excursion from rest, the ratio
 form of the personal centring, SPARC on the whole rep (raise + lower) using the
@@ -203,7 +206,8 @@ def resting_tilt(t_ms, tilt, t_start_ms, t_prev_end_ms=np.nan):
 
 
 def rest_corrected_tilt(t_ms, tilt, tilt_s, t_start_ms, t_end_ms, t_prev_end_ms=np.nan):
-    """max |tilt_s - resting tilt| (wrapped) over one rep; NaN like the other B7 features."""
+    """max(|wrap(tilt_s - resting tilt)|) over one rep, rest-corrected only (no
+    elevation correction); NaN like the other B7 features."""
     base = resting_tilt(t_ms, tilt, t_start_ms, t_prev_end_ms)
     if np.isnan(base):
         return np.nan

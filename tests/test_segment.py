@@ -217,7 +217,7 @@ def test_still_rest_ignores_a_falling_tail():
 
 
 # ---- long tracking gaps are never bridged (issue #12) ----
-from neuroflow.segmentation.segment import long_gaps, smooth  # noqa: E402
+from neuroflow.segmentation.segment import gap_breaks, long_gaps, smooth  # noqa: E402
 
 
 def _with_gap(frames, t0, dur_ms):
@@ -279,8 +279,115 @@ def test_gap_at_rest_keeps_every_rep():
     assert np.allclose(reps.loc[known, "t_end_ms"], truth.loc[known, "t_end_ms"], atol=TOLERANCE_MS)
 
 
+# ---- gaps measured on real timestamps (PR #15 review) ----
+
+def test_irregular_timing_gap_is_measured_between_valid_samples():
+    """Adastra's case: one missing sample at 165 ms between valid samples at 132 and
+    500 ms. A median frame period would call it 33 ms long; it is 368 ms."""
+    t = np.r_[np.arange(0, 166, 33.0), np.arange(500, 1500, 33.0)]
+    x = 10.0 + 0.1 * t                                    # 26.5 deg at 165 ms if interpolated
+    x[t == 165] = np.nan
+    assert long_gaps(t, x)[t == 165].all()
+    assert list(gap_breaks(t, x)) == [int(np.flatnonzero(t == 500)[0])]
+    xs = smooth(t, x)
+    assert np.isnan(xs[t == 165]).all()                  # nothing invented in the 368 ms
+    assert np.isfinite(xs[t != 165]).all()
+
+
+def test_short_gap_with_regular_timing_is_still_bridged():
+    t = np.arange(0, 1500, 33.0)
+    x = np.sin(t / 300.0)
+    x[(t > 600) & (t < 700)] = np.nan                     # valid samples 132 ms apart
+    assert not long_gaps(t, x).any() and len(gap_breaks(t, x)) == 0
+    assert np.isfinite(smooth(t, x)).all()
+
+
+def test_jump_in_capture_time_without_missing_rows_cuts_the_signal():
+    t = np.r_[np.arange(0, 1000, 33.0), np.arange(1400, 2400, 33.0)]   # 400+ ms dropped
+    x = np.sin(t / 300.0)
+    assert not long_gaps(t, x).any()                     # no NaN rows ...
+    assert list(gap_breaks(t, x)) == [int(np.flatnonzero(t == 1400)[0])]   # ... but a break
+    left = t < 1000
+    xs = smooth(t, x)
+    ref = smooth(t[left], x[left])                        # left piece smoothed on its own
+    np.testing.assert_allclose(xs[left], ref)
+
+
+def test_missing_frames_at_the_clip_edges_are_not_extrapolated():
+    t = np.arange(0, 1500, 33.0)
+    x = np.sin(t / 300.0)
+    x[:3] = np.nan                                        # tracking starts late
+    x[-2:] = np.nan                                       # and stops early
+    g = long_gaps(t, x)
+    assert g[:3].all() and g[-2:].all() and not g[3:-2].any()
+    xs = smooth(t, x)
+    assert np.isnan(xs[:3]).all() and np.isnan(xs[-2:]).all() and np.isfinite(xs[3:-2]).all()
+
+
+def _drop_rows(frames, t0, dur_ms):
+    """Remove the frames in [t0, t0 + dur) entirely: a jump in capture time."""
+    f = frames.sort_values("t_capture_ms")
+    t = f["t_capture_ms"]
+    return f[~((t >= t0) & (t < t0 + dur_ms))].copy()
+
+
+def test_time_jump_inside_a_rep_drops_it():
+    frames, truth, rest, rom = _load("normal")
+    r = truth.iloc[4]
+    t0 = r["t_peak_ms"] - 200
+    reps = segment_reps(_drop_rows(frames, t0, 400), rom, rest)
+    assert len(reps) == len(truth) - 1 and reps.attrs["dropped_gap_reps"] == 1
+    for c in ("t_start_ms", "t_peak_ms", "t_end_ms"):
+        assert not reps[c].between(t0, t0 + 400).any()
+
+
+def test_boundary_next_to_a_long_gap_is_unknown_not_placed_in_it():
+    """Missing samples just before a rep's start, with irregular timing: the start
+    is not placed inside the unobserved interval."""
+    frames, truth, rest, rom = _load("normal")
+    r = truth.iloc[4]
+    t0 = r["t_start_ms"] - 250
+    f = _drop_rows(frames, t0, 150)                       # a 150 ms jump ...
+    tt = f["t_capture_ms"]
+    f.loc[(tt >= t0 + 150) & (tt < t0 + 230), "theta_ht_deg"] = np.nan   # ... then NaN: > 0.2 s
+    reps = segment_reps(f, rom, rest)
+    assert len(reps) == len(truth)
+    s = reps["t_start_ms"].iloc[4]
+    assert np.isnan(s) or s >= t0 + 230
+
+
 def test_short_gap_inside_a_rep_is_bridged():
     frames, truth, rest, rom = _load("normal")
     r = truth.iloc[4]
     reps = segment_reps(_with_gap(frames, r["t_peak_ms"] - 50, 100), rom, rest)
     assert len(reps) == len(truth) and reps.attrs["dropped_gap_reps"] == 0
+
+
+# ---- calibration with long invalid stretches (PR #15 review) ----
+from neuroflow.segmentation.segment import CALIB_MIN_REPS, calibrate  # noqa: E402
+
+
+def _calib_gap(frames, frac, dur_ms):
+    f = frames.sort_values("t_capture_ms").copy()
+    t = f["t_capture_ms"]
+    t0 = t.min() + frac * (t.max() - t.min())
+    f.loc[(t >= t0) & (t < t0 + dur_ms), "theta_ht_deg"] = np.nan
+    return f
+
+
+def test_calibration_ignores_a_long_gap_and_matches_the_clean_block():
+    frames, _, _, _ = _load("normal")
+    rest, rom = calibrate(frames)
+    rest_g, rom_g = calibrate(_calib_gap(frames, 0.4, 600))   # one rep lost to the gap
+    assert np.isfinite(rest_g) and np.isfinite(rom_g)
+    assert rest_g == pytest.approx(rest, abs=0.5) and rom_g == pytest.approx(rom, abs=2.0)
+
+
+def test_calibration_with_too_few_measured_reps_raises_and_says_why():
+    frames, _, _, _ = _load("normal")
+    f = frames.sort_values("t_capture_ms").copy()
+    t = f["t_capture_ms"]
+    keep_until = t.min() + 0.18 * (t.max() - t.min())         # about 2 reps measured
+    f.loc[t > keep_until, "theta_ht_deg"] = np.nan
+    with pytest.raises(ValueError, match=f"needs {CALIB_MIN_REPS}"):
+        calibrate(f)

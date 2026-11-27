@@ -15,6 +15,9 @@ Two steps:
          plus angle_col (which elevation angle the curve came from).
          Saved next to reps.parquet as rep_curves.parquet (save_curves / load_curves).
          Curves of different angles are never mixed: fitting or scoring raises.
+         add_dtw_dist also checks the angle ACROSS tables: the curves, the
+         training reps and the scored reps must all record the same valid
+         angle_col (PR #15 review); missing or unknown provenance raises.
   C's side, inside each fold (no frames needed):
       reps = add_dtw_dist(reps, curves, train_reps)
       -> template from the NORMAL reps of train_reps only, then
@@ -63,6 +66,37 @@ def load_curves(path):
     return c.set_index("rep_id")
 
 
+def check_angles(curves, *rep_tables):
+    """
+    The one angle that the curves and every reps table share; raises otherwise.
+    Each must record angle_col on every row, with one value from ANGLE_COLS, and
+    all must agree, so a template built on one angle definition is never compared
+    with reps or curves of another (PR #15 review).
+    """
+    from neuroflow.segmentation.segment import ANGLE_COLS
+
+    def one(table, what):
+        if "angle_col" not in table.columns:
+            raise ValueError(f"{what} don't record angle_col; the angle can't be established")
+        col = table["angle_col"]
+        if col.isna().any():
+            raise ValueError(f"{what}: {int(col.isna().sum())} rows without angle_col")
+        vals = sorted(col.unique())
+        if len(vals) > 1:
+            raise ValueError(f"{what} mix angle columns {vals}; never compare them")
+        if vals and vals[0] not in ANGLE_COLS:
+            raise ValueError(f"{what}: angle_col {vals[0]!r} is not one of {ANGLE_COLS}")
+        return vals[0] if vals else None
+
+    angle = one(curves, "curves")
+    for i, reps in enumerate(rep_tables):
+        a = one(reps, "training reps" if i == 0 else "scored reps")
+        if a is not None and a != angle:
+            raise ValueError(f"curves are on {angle}, but the "
+                             f"{'training' if i == 0 else 'scored'} reps are on {a}")
+    return angle
+
+
 def curves_angle(curves):
     """The one angle these curves come from; raises if they mix angles."""
     if "angle_col" not in curves.columns:
@@ -106,7 +140,7 @@ def add_dtw_dist(reps, curves, train_reps, method="dba", band_frac=BAND_FRAC):
     Only curves of train_reps' normal reps enter the template, so the held-out
     subject never shapes its own reference.
     """
-    curves_angle(curves)
+    check_angles(curves, train_reps, reps)
     template = fit_template(curves, train_reps, method, band_frac)
     have = curves.reindex(reps["rep_id"]).dropna(subset=CURVE_COLUMNS)
     d = dtw_dist(have, template, band_frac)
@@ -128,8 +162,9 @@ def main():
     for k, x in enumerate(timing_varied_reps(k=10, seed=99)):
         rows.append({"rep_id": f"cap_{k}", "subject_id": "sub6", "condition": "rom_cap"})
         curves.append(0.5 * x)
-    reps = pd.DataFrame(rows)
-    curves = pd.DataFrame(curves, index=pd.Index(reps["rep_id"], name="rep_id"), columns=CURVE_COLUMNS)
+    reps = pd.DataFrame(rows).assign(angle_col="theta_ht_deg")
+    curves = pd.DataFrame(curves, index=pd.Index(reps["rep_id"], name="rep_id"),
+                          columns=CURVE_COLUMNS).assign(angle_col="theta_ht_deg")
 
     for held in ("sub0", "sub6"):
         train = reps[reps["subject_id"] != held]

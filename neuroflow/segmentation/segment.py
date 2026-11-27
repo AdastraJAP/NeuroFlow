@@ -58,8 +58,15 @@ T_LOW = 20.0            # deg, leave a rep below this
 SMOOTH_WINDOW_S = 0.25  # Savitzky-Golay window (A5 default); swap for A's smooth_savgol later
 SMOOTH_ORDER = 2
 MAX_SEARCH_S = 1.5      # how far before/after a crossing to look for rest
-MAX_GAP_S = 0.2         # tracking gaps up to this long are bridged; longer ones stay NaN
-                        # and a rep that spans one is not reported (issue #12)
+MAX_GAP_S = 0.2         # tracking gaps: measured on the real timestamps, as the time
+                        # between the valid samples on either side of the missing ones
+                        # (or of a jump in capture time). Up to this long they are
+                        # bridged for smoothing; longer ones stay NaN, are never
+                        # interpolated across, and a rep that spans one is not
+                        # reported (issue #12, PR #15 review). Our choice, not a
+                        # literature value.
+CALIB_MIN_REPS = 3      # calibrate() needs at least this many fully measured reps (our
+                        # choice: G1's practice calibration has exactly 3)
 REST_STABLE_S = 0.5     # rest must be still over this long (the part farthest from the rep)
 REST_MAX_SLOPE = 3.0    # deg/s; faster than this the arm is still moving, not at rest
                         # (G1 clips end while still falling at about 10 deg/s)
@@ -115,35 +122,49 @@ def reps_angle_col(reps, angle_col=None):
     return angle_col or ANGLE_COL
 
 
+def _long_intervals(t_ms, x, max_gap_s=MAX_GAP_S):
+    """Indices v of the valid samples, and the positions k where the real time
+    from valid sample v[k] to the next one, v[k + 1], is longer than max_gap_s."""
+    v = np.flatnonzero(~np.isnan(np.asarray(x, dtype=float)))
+    dt = np.diff(np.asarray(t_ms, dtype=float)[v])
+    return v, np.flatnonzero(dt > max_gap_s * 1000.0)
+
+
 def long_gaps(t_ms, x, max_gap_s=MAX_GAP_S):
-    """True for frames inside a run of missing values that lasts longer than
-    max_gap_s (from the first to the last missing frame, plus one frame)."""
+    """
+    True for missing frames that must stay NaN:
+      - inside a long gap: the valid samples before and after them are more than
+        max_gap_s apart in real time (timestamps, not a median frame period, so
+        irregular capture timing can't hide a long gap);
+      - before the first or after the last valid sample (nothing on one side to
+        interpolate from).
+    """
     x = np.asarray(x, dtype=float)
-    t_ms = np.asarray(t_ms, dtype=float)
-    miss = np.isnan(x)
-    out = np.zeros(len(x), dtype=bool)
-    if len(x) < 2 or not miss.any():
+    out = np.isnan(x)
+    v, long = _long_intervals(t_ms, x, max_gap_s)
+    if len(v) == 0:
         return out
-    dt = np.median(np.diff(t_ms))
-    i = 0
-    while i < len(x):
-        if miss[i]:
-            j = i
-            while j + 1 < len(x) and miss[j + 1]:
-                j += 1
-            if t_ms[j] - t_ms[i] + dt > max_gap_s * 1000.0:
-                out[i:j + 1] = True
-            i = j + 1
-        else:
-            i += 1
-    return out
+    keep = np.zeros(len(x), dtype=bool)                 # missing frames inside short gaps
+    short = np.setdiff1d(np.arange(len(v) - 1), long)
+    for k in short:
+        keep[v[k] + 1:v[k + 1]] = True
+    return out & ~keep
+
+
+def gap_breaks(t_ms, x, max_gap_s=MAX_GAP_S):
+    """Frame indices where a new stretch of measurement starts after a long gap
+    (missing frames or a jump in capture time longer than max_gap_s)."""
+    v, long = _long_intervals(t_ms, x, max_gap_s)
+    return v[long + 1]
 
 
 def smooth(t_ms, x, window_s=SMOOTH_WINDOW_S, order=SMOOTH_ORDER):
     """Zero-phase Savitzky-Golay smoothing. Window is set in seconds from real timestamps.
-    Short NaN gaps (<= MAX_GAP_S) are linearly interpolated for smoothing only.
-    Long gaps stay NaN, and the pieces between them are smoothed separately, so
-    no value is invented across a long tracking gap (issue #12)."""
+    Short NaN gaps (<= MAX_GAP_S between the valid samples around them) are
+    linearly interpolated for smoothing only. The signal is cut at every long gap
+    (see long_gaps / gap_breaks) and each piece, from its first to its last valid
+    sample, is smoothed separately: no value is invented across a long gap or
+    before / after the measured samples (issue #12, PR #15 review)."""
     x = np.asarray(x, dtype=float)
     t_ms = np.asarray(t_ms, dtype=float)
     out = np.full(len(x), np.nan)
@@ -152,9 +173,10 @@ def smooth(t_ms, x, window_s=SMOOTH_WINDOW_S, order=SMOOTH_ORDER):
     dt = np.median(np.diff(t_ms))
     win = int(round(window_s * 1000.0 / dt))
     win = max(win | 1, order + 2 | 1)  # odd and long enough for the polynomial
-    gap = long_gaps(t_ms, x)
-    edges = np.flatnonzero(np.diff(np.r_[1, gap.astype(int), 1]))   # piece boundaries
-    for a, b in zip(edges[::2], edges[1::2]):                      # pieces of non-gap frames
+    v, long = _long_intervals(t_ms, x)
+    starts = np.r_[v[0], v[long + 1]]
+    ends = np.r_[v[long], v[-1]] + 1                                # exclusive
+    for a, b in zip(starts, ends):                                 # first..last valid of a piece
         tt, xx = t_ms[a:b], x[a:b]
         ok = ~np.isnan(xx)
         if ok.sum() < 3:
@@ -326,8 +348,9 @@ def _run(frames, t_high, t_low, method, angle_col=ANGLE_COL):
     frames, t, theta = angle_signal(frames, angle_col)
     theta_s = smooth(t, theta)
     det = detect(theta_s, t_high, t_low)
-    gap = long_gaps(t, theta)
-    kept = [d for d in det if not gap[d[0]:d[2] + 1].any()]   # peak/crossings not measured
+    gap, breaks = long_gaps(t, theta), gap_breaks(t, theta)
+    kept = [d for d in det                                    # peak/crossings not measured
+            if not gap[d[0]:d[2] + 1].any() and not ((breaks > d[0]) & (breaks <= d[2])).any()]
     reps = boundaries(theta_s, t, kept, method, t_low=t_low)
     return frames, reps, [float(theta_s[p]) for _, p, _ in kept], len(det) - len(kept)
 
@@ -348,18 +371,32 @@ def calibrate(frames, angle_col=ANGLE_COL):
     Estimate (rest_ref, rom_ref) in degrees from a calibration block (~10 normal reps).
     Self-scaling, so it also works for a user with a small range:
       1. rest = 10th percentile of the smoothed angle (most frames are at rest);
-         rough range = 98th percentile - rest.
-      2. detect reps with thresholds at 50% / 40% of that rough range;
-      3. rom_ref = median rep peak - rest.
+         rough range = 98th percentile - rest. Measured frames only: long tracking
+         gaps stay NaN (issue #12) and are left out, never filled.
+      2. detect reps with thresholds at 50% / 40% of that rough range; a rep that
+         spans a long gap (as in segment_reps) is left out, since its peak may not
+         have been measured;
+      3. rom_ref = median peak of the remaining reps - rest.
+    Long invalid stretches (PR #15 review): if fewer than CALIB_MIN_REPS fully
+    measured reps remain, calibration raises, saying how many reps were found and
+    how many long gaps removed. It never falls back to partial reps or guesses a
+    range: record the calibration block again.
     """
     _, t, theta = angle_signal(frames, angle_col)
     theta_s = smooth(t, theta)
-    rest = float(np.percentile(theta_s, 10))
-    rough = float(np.percentile(theta_s, 98)) - rest
+    if np.isnan(theta_s).all():
+        raise ValueError("calibration block has no measured frames")
+    rest = float(np.nanpercentile(theta_s, 10))
+    rough = float(np.nanpercentile(theta_s, 98)) - rest
     det = detect(theta_s, rest + 0.5 * rough, rest + 0.4 * rough)
-    if not det:
-        raise ValueError("calibration block has no detectable reps")
-    rom = float(np.median([theta_s[p] for _, p, _ in det])) - rest
+    gap, breaks = long_gaps(t, theta), gap_breaks(t, theta)
+    kept = [d for d in det
+            if not gap[d[0]:d[2] + 1].any() and not ((breaks > d[0]) & (breaks <= d[2])).any()]
+    if len(kept) < CALIB_MIN_REPS:
+        raise ValueError(f"calibration block has {len(kept)} fully measured reps, needs "
+                         f"{CALIB_MIN_REPS} ({len(det)} detected, {len(det) - len(kept)} left "
+                         "out because they span a long tracking gap); record it again")
+    rom = float(np.median([theta_s[p] for _, p, _ in kept])) - rest
     return rest, rom
 
 

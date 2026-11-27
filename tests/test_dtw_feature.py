@@ -24,9 +24,9 @@ def _toy():
     for k, x in enumerate(timing_varied_reps(k=8, seed=50)):
         rows.append({"rep_id": f"cap_{k}", "subject_id": "cap", "condition": "rom_cap"})
         X.append(0.5 * x)
-    reps = pd.DataFrame(rows)
+    reps = pd.DataFrame(rows).assign(angle_col="theta_ht_deg")
     curves = pd.DataFrame(X, index=pd.Index(reps["rep_id"], name="rep_id"), columns=CURVE_COLUMNS)
-    return reps, curves
+    return reps, curves.assign(angle_col="theta_ht_deg")
 
 
 def test_curves_from_mock_frames():
@@ -58,7 +58,7 @@ def test_template_uses_normal_train_reps_only():
     np.testing.assert_array_equal(t1, t2)                    # capped reps never enter it
     # the held-out subject's curves can change freely without changing the template
     other = curves.copy()
-    other.loc[other.index.str.startswith("s4_")] *= 10
+    other.loc[other.index.str.startswith("s4_"), CURVE_COLUMNS] *= 10
     np.testing.assert_array_equal(t1, fit_template(other, train, method="mean"))
 
 
@@ -67,7 +67,7 @@ def test_distance_matches_b4_and_missing_curve_is_nan():
     train = reps[reps["subject_id"] != "s0"]
     t = fit_template(curves, train)
     d = dtw_dist(curves.loc[["s0_0"]], t)
-    assert d.iloc[0] == pytest.approx(dtw_distance(curves.loc["s0_0"].to_numpy(), t, 0.15))
+    assert d.iloc[0] == pytest.approx(dtw_distance(curves.loc["s0_0", CURVE_COLUMNS].to_numpy(dtype=float), t, 0.15))
     out = add_dtw_dist(reps[reps["subject_id"] == "s0"], curves.drop(index="s0_1"), train)
     assert np.isnan(out.set_index("rep_id").loc["s0_1", "dtw_dist"])
     assert out["dtw_dist"].notna().sum() == 7
@@ -96,7 +96,44 @@ def test_curves_record_their_angle_and_round_trip(tmp_path):
 
 def test_mixed_angles_are_refused():
     reps, curves = _toy()
-    curves = curves.assign(angle_col="theta_ht_deg")
     curves.iloc[0, curves.columns.get_loc("angle_col")] = "theta_v_deg"
     with pytest.raises(ValueError, match="mix angle columns"):
         add_dtw_dist(reps, curves, reps[reps["subject_id"] != "s0"])
+
+
+# ---- angle provenance across tables (PR #15 review) ----
+
+def test_uniform_angle_mismatch_across_tables_is_refused():
+    """Curves all on theta_ht_deg, reps all on theta_v_deg: each table is uniform on
+    its own, but they must never be compared."""
+    reps, curves = _toy()
+    train = reps[reps["subject_id"] != "s0"]
+    target = reps[reps["subject_id"] == "s0"]
+    v = lambda r: r.assign(angle_col="theta_v_deg")          # noqa: E731
+    with pytest.raises(ValueError, match="training reps are on theta_v_deg"):
+        add_dtw_dist(v(target), curves, v(train))
+    with pytest.raises(ValueError, match="scored reps are on theta_v_deg"):
+        add_dtw_dist(v(target), curves, train)
+    with pytest.raises(ValueError, match="training reps are on theta_v_deg"):
+        add_dtw_dist(target, curves, v(train))
+    assert add_dtw_dist(target, curves, train)["dtw_dist"].notna().all()   # all agree: fine
+
+
+@pytest.mark.parametrize("break_it", ["curves_no_column", "curves_null", "reps_no_column",
+                                      "reps_null", "unknown_angle"])
+def test_missing_or_invalid_angle_provenance_is_refused(break_it):
+    reps, curves = _toy()
+    train = reps[reps["subject_id"] != "s0"]
+    target = reps[reps["subject_id"] == "s0"].copy()
+    if break_it == "curves_no_column":
+        curves = curves.drop(columns="angle_col")
+    elif break_it == "curves_null":
+        curves.iloc[0, curves.columns.get_loc("angle_col")] = None
+    elif break_it == "reps_no_column":
+        target = target.drop(columns="angle_col")
+    elif break_it == "reps_null":
+        target.iloc[0, target.columns.get_loc("angle_col")] = None
+    else:
+        curves = curves.assign(angle_col="theta_xyz")
+    with pytest.raises(ValueError):
+        add_dtw_dist(target, curves, train)
