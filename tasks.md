@@ -390,3 +390,4 @@ Rep counts are right. Slow is about 1.9× normal, and rom_cap reaches about half
 | 2026-11-27 | Proposed: the G1 real-data check is plumbing only (one participant); G3 needs ≥ 2 real subjects |
 | 2026-11-27 | Gap length measured on real timestamps (valid sample to valid sample); a capture-time jump counts as a gap; calibration needs ≥ 3 fully measured reps (PR #15 review) |
 | 2026-11-27 | Elevation-corrected tilt is a new column `max_shoulder_tilt_excess_deg`; `max_shoulder_tilt_deg` keeps the rest-corrected definition (PR #15 review) |
+| 2026-11-29 | Frames v2 (PR #18) keeps original recording roles: practice clips stay `practice` in frames; B sets `calib` on calibration reps only, from the calibration manifest |
